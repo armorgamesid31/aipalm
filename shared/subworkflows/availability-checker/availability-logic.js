@@ -1481,65 +1481,69 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
   const candidates = [];
   const filters = constraints?.filters || {};
   const sameDayRequired = constraints?.same_day_required !== false;
-  
+
   const mainService = services.find(s => isNailAnchor(s.name)) || services[0];
   const otherServices = services.filter(s => s !== mainService);
   const preferredExpert = mainService.expert_preference ? canonicalExpert(mainService.expert_preference) : null;
-  
+
   let allExperts = eligibleExpertsForService(mainService.name, serviceInfo);
-  
+
   const originalStrict = filters?.nail_expert_strict;
   const softFilters = { ...filters, nail_expert_strict: false };
-  
+
   const timeWindows = ["morning", "noon", "afternoon", "evening"];
-  
+
+  // ✅ FIX: time_window_strict: false kullan, priority ile sırala
+  const flexibleFilters = {
+    ...softFilters,
+    time_window_strict: false  // 👈 SOFT mode
+  };
+
   for (const timeWindow of timeWindows) {
     const windowStart = timeWindow === "morning" ? TIME_WINDOWS.MORNING.start :
                          timeWindow === "noon" ? TIME_WINDOWS.NOON.start :
                          timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.start :
                          TIME_WINDOWS.EVENING.start;
-    
+
     const windowEnd = timeWindow === "morning" ? TIME_WINDOWS.MORNING.end :
                        timeWindow === "noon" ? TIME_WINDOWS.NOON.end :
                        timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.end :
                        TIME_WINDOWS.EVENING.end;
-    
-    const windowFilters = {
-      ...softFilters,
-      time_window: {
-        start: minutesToTime(windowStart),
-        end: minutesToTime(windowEnd)
-      },
-      time_window_strict: true
-    };
-    
+
+    // Her window için slot ara (SOFT filter ile)
     if (preferredExpert) {
-      const slots = findAvailableSlots(
-        dateStr, 
-        preferredExpert, 
-        mainService, 
-        existingAppointments, 
-        staffLeaves, 
-        serviceInfo, 
-        windowFilters,
+      const allSlots = findAvailableSlots(
+        dateStr,
+        preferredExpert,
+        mainService,
+        existingAppointments,
+        staffLeaves,
+        serviceInfo,
+        flexibleFilters,  // 👈 Soft filter
         currentTime
       );
-      
-      if (slots.length > 0) {
+
+      // Bu window'a ait slotları filtrele
+      const windowSlots = allSlots.filter(slot => {
+        const slotMin = timeToMinutes(slot.start);
+        return slotMin >= windowStart && slotMin < windowEnd;
+      });
+
+      if (windowSlots.length > 0) {
         const mainDet = getServiceDetails(serviceInfo, mainService.name, preferredExpert);
         if (!mainDet) continue;
-        
+
         const refSlot = {
           date: dateStr,
           expert: preferredExpert,
           service: mainService.name,
-          start: slots[0].start,
-          end: slots[0].end,
+          start: windowSlots[0].start,
+          end: windowSlots[0].end,
           duration: parseInt(mainDet.sure),
           price: parseInt(mainDet.fiyat),
           for_person: mainService.for_person || null
         };
-        
+
         const combo = tryScheduleAllServices(
           refSlot,
           otherServices,
@@ -1550,7 +1554,7 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           { ...constraints, filters: softFilters, same_day_required: sameDayRequired },
           currentTime
         );
-        
+
         if (combo && combo.complete) {
           const windowName = timeWindow === 'morning' ? 'Sabah' :
                              timeWindow === 'noon' ? 'Öğle' :
@@ -1570,34 +1574,40 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
         }
       }
     }
-    
+
     for (const ex of allExperts.filter(e => e !== preferredExpert)) {
-      const slots = findAvailableSlots(
-        dateStr, 
-        ex, 
-        mainService, 
-        existingAppointments, 
-        staffLeaves, 
-        serviceInfo, 
-        windowFilters,
+      const allSlots = findAvailableSlots(
+        dateStr,
+        ex,
+        mainService,
+        existingAppointments,
+        staffLeaves,
+        serviceInfo,
+        flexibleFilters,  // 👈 Soft filter
         currentTime
       );
-      
-      if (slots.length > 0) {
+
+      // Bu window'a ait slotları filtrele
+      const windowSlots = allSlots.filter(slot => {
+        const slotMin = timeToMinutes(slot.start);
+        return slotMin >= windowStart && slotMin < windowEnd;
+      });
+
+      if (windowSlots.length > 0) {
         const mainDet = getServiceDetails(serviceInfo, mainService.name, ex);
         if (!mainDet) continue;
-        
+
         const refSlot = {
           date: dateStr,
           expert: canonicalExpert(ex),
           service: mainService.name,
-          start: slots[0].start,
-          end: slots[0].end,
+          start: windowSlots[0].start,
+          end: windowSlots[0].end,
           duration: parseInt(mainDet.sure),
           price: parseInt(mainDet.fiyat),
           for_person: mainService.for_person || null
         };
-        
+
         const combo = tryScheduleAllServices(
           refSlot,
           otherServices,
@@ -1608,7 +1618,7 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           { ...constraints, filters: softFilters, same_day_required: sameDayRequired },
           currentTime
         );
-        
+
         if (combo && combo.complete) {
           const windowName = timeWindow === 'morning' ? 'Sabah' :
                              timeWindow === 'noon' ? 'Öğle' :
