@@ -1790,7 +1790,8 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
               time_window: timeWindow
             });
 
-            break;
+            // ✅ FIX: Kaldırıldı - tüm time windows için alternatif üretilsin
+            if (candidates.length >= 10) break;  // Toplam 10'a ulaştıysak bu window loop'undan çık
           }
         }
       }
@@ -2321,4 +2322,14 @@ function main() {
   } }];
 }
 
-return main();
+// Support both n8n and Node.js module usage
+if (typeof $input !== 'undefined' && typeof module === 'undefined') {
+  // n8n execution context
+  return main();
+} else {
+  // Node.js module context
+  const result = main();
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = result;
+  }
+}
