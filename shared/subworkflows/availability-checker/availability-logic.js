@@ -132,6 +132,28 @@ function getTimeWindowName(timeStr) {
   return "morning";
 }
 
+function calculateTimeWindowPenalty(slotStartTime, requestedTimeWindow) {
+  // Eğer time_window tercihi yoksa veya strict modda ise penalty yok
+  if (!requestedTimeWindow || !requestedTimeWindow.start) return 0;
+
+  const slotWindow = getTimeWindow(slotStartTime);
+  const requestedWindow = getTimeWindowName(requestedTimeWindow.start);
+
+  // Eğer tam eşleşme varsa penalty yok
+  if (slotWindow === requestedWindow) return 0;
+
+  // Window'lar arası uzaklığı hesapla
+  const windowOrder = ['morning', 'noon', 'afternoon', 'evening'];
+  const slotIndex = windowOrder.indexOf(slotWindow);
+  const requestedIndex = windowOrder.indexOf(requestedWindow);
+
+  if (slotIndex === -1 || requestedIndex === -1) return 0;
+
+  // Her window uzaklığı için 2 puan penalty
+  const distance = Math.abs(slotIndex - requestedIndex);
+  return distance * 2;
+}
+
 function isTimeGapSufficient(time1, time2, minGap = MIN_PRESENT_GAP_MIN) {
   return Math.abs(timeToMinutes(time1) - timeToMinutes(time2)) >= minGap;
 }
@@ -1341,6 +1363,8 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
     if (hit) {
       const det = getServiceDetails(serviceInfo, serviceName, ex);
       if (!det) continue;
+      const basePriority = 1;
+      const timeWindowPenalty = calculateTimeWindowPenalty(hit.start, filters?.time_window);
       candidates.push({
         date: dateStr,
         start: hit.start,
@@ -1350,7 +1374,7 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
         price: parseInt(det.fiyat),
         duration: parseInt(det.sure),
         reason: "Aynı saat – farklı uzman",
-        priority: 1,
+        priority: basePriority + timeWindowPenalty,
         time_window: getTimeWindow(hit.start)
       });
     }
@@ -1371,11 +1395,14 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
           const selected = slotsWithDifferentTimes[0];
           const det = getServiceDetails(serviceInfo, serviceName, preferredExpert);
           if (!det) continue;
-          
-          const windowName = window === 'morning' ? 'Sabah' : 
-                             window === 'noon' ? 'Öğle' : 
+
+          const windowName = window === 'morning' ? 'Sabah' :
+                             window === 'noon' ? 'Öğle' :
                              window === 'afternoon' ? 'Öğleden sonra' : 'Akşam';
-          
+
+          const basePriority = 2;
+          const timeWindowPenalty = calculateTimeWindowPenalty(selected.start, filters?.time_window);
+
           candidates.push({
             date: dateStr,
             start: selected.start,
@@ -1385,7 +1412,7 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
             price: parseInt(det.fiyat),
             duration: parseInt(det.sure),
             reason: `${windowName} saati – tercih edilen uzman`,
-            priority: 2,
+            priority: basePriority + timeWindowPenalty,
             time_window: window
           });
         }
@@ -1418,11 +1445,14 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
           const selected = nSlots[0];
           const det = getServiceDetails(serviceInfo, serviceName, preferredExpert);
           if (!det) continue;
-          
-          const windowName = window === 'morning' ? 'sabah' : 
-                            window === 'noon' ? 'öğle' : 
+
+          const windowName = window === 'morning' ? 'sabah' :
+                            window === 'noon' ? 'öğle' :
                             window === 'afternoon' ? 'öğleden sonra' : 'akşam';
-          
+
+          const basePriority = 3 + i;
+          const timeWindowPenalty = calculateTimeWindowPenalty(selected.start, filters?.time_window);
+
           candidates.push({
             date: nd,
             start: selected.start,
@@ -1432,10 +1462,10 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
             price: parseInt(det.fiyat),
             duration: parseInt(det.sure),
             reason: i === 1 ? `Ertesi gün – ${windowName}` : `${i} gün sonra – ${windowName}`,
-            priority: 3 + i,
+            priority: basePriority + timeWindowPenalty,
             time_window: window
           });
-          
+
           break;
         }
       }
@@ -1522,17 +1552,20 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
         );
         
         if (combo && combo.complete) {
-          const windowName = timeWindow === 'morning' ? 'Sabah' : 
-                             timeWindow === 'noon' ? 'Öğle' : 
+          const windowName = timeWindow === 'morning' ? 'Sabah' :
+                             timeWindow === 'noon' ? 'Öğle' :
                              timeWindow === 'afternoon' ? 'Öğleden sonra' : 'Akşam';
-                             
+
+          const basePriority = 1;
+          const timeWindowPenalty = calculateTimeWindowPenalty(refSlot.start, constraints?.filters?.time_window);
+
           candidates.push({
             ...combo,
             reason: `${windowName} saati – tercih edilen uzman`,
-            priority: 1,
+            priority: basePriority + timeWindowPenalty,
             time_window: timeWindow
           });
-          
+
           continue;
         }
       }
@@ -1577,17 +1610,20 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
         );
         
         if (combo && combo.complete) {
-          const windowName = timeWindow === 'morning' ? 'Sabah' : 
-                             timeWindow === 'noon' ? 'Öğle' : 
+          const windowName = timeWindow === 'morning' ? 'Sabah' :
+                             timeWindow === 'noon' ? 'Öğle' :
                              timeWindow === 'afternoon' ? 'Öğleden sonra' : 'Akşam';
-                             
+
+          const basePriority = 2;
+          const timeWindowPenalty = calculateTimeWindowPenalty(refSlot.start, constraints?.filters?.time_window);
+
           candidates.push({
             ...combo,
             reason: `${windowName} saati – alternatif uzman`,
-            priority: 2,
+            priority: basePriority + timeWindowPenalty,
             time_window: timeWindow
           });
-          
+
           break;
         }
       }
@@ -1659,14 +1695,17 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           
           if (combo && combo.complete) {
             const windowName = timeWindow === 'morning' ? 'sabah' : 'öğleden sonra';
-            
+
+            const basePriority = 3 + i;
+            const timeWindowPenalty = calculateTimeWindowPenalty(refSlot.start, constraints?.filters?.time_window);
+
             candidates.push({
               ...combo,
               reason: i === 1 ? `Ertesi gün ${windowName} – tercih edilen uzman` : `${i} gün sonra ${windowName} – tercih edilen uzman`,
-              priority: 3 + i,
+              priority: basePriority + timeWindowPenalty,
               time_window: timeWindow
             });
-            
+
             break;
           }
         }
