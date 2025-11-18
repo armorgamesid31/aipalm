@@ -132,6 +132,68 @@ function getTimeWindowName(timeStr) {
   return "morning";
 }
 
+function calculateTimeWindowPenalty(slotStartTime, requestedTimeWindow) {
+  // Eğer time_window tercihi yoksa veya strict modda ise penalty yok
+  if (!requestedTimeWindow || !requestedTimeWindow.start) return 0;
+
+  const slotWindow = getTimeWindow(slotStartTime);
+  const requestedWindow = getTimeWindowName(requestedTimeWindow.start);
+
+  // Eğer tam eşleşme varsa penalty yok
+  if (slotWindow === requestedWindow) return 0;
+
+  // Window'lar arası uzaklığı hesapla
+  const windowOrder = ['morning', 'noon', 'afternoon', 'evening'];
+  const slotIndex = windowOrder.indexOf(slotWindow);
+  const requestedIndex = windowOrder.indexOf(requestedWindow);
+
+  if (slotIndex === -1 || requestedIndex === -1) return 0;
+
+  // Her window uzaklığı için 2 puan penalty
+  const distance = Math.abs(slotIndex - requestedIndex);
+  return distance * 2;
+}
+
+/**
+ * Window içindeki slotlardan en uygun olanı seçer
+ * @param {Array} windowSlots - Window içindeki tüm slotlar
+ * @param {Object} requestedTimeWindow - İstenen time window (örn: {start: "19:00", end: "20:00"})
+ * @param {string} currentWindow - Şu anki window adı ("morning", "noon", "afternoon", "evening")
+ * @returns {Object} En uygun slot
+ */
+function selectBestSlotFromWindow(windowSlots, requestedTimeWindow, currentWindow) {
+  if (!windowSlots || windowSlots.length === 0) return null;
+
+  // Eğer requested time yoksa, ilk slot'u döndür
+  if (!requestedTimeWindow || !requestedTimeWindow.start) {
+    return windowSlots[0];
+  }
+
+  const requestedMin = timeToMinutes(requestedTimeWindow.start);
+  const requestedWindow = getTimeWindowName(requestedTimeWindow.start);
+
+  // Eğer AYNI window içindeyse, requested time'a en yakın slot'u seç
+  if (currentWindow === requestedWindow) {
+    let bestSlot = windowSlots[0];
+    let bestDiff = Math.abs(timeToMinutes(windowSlots[0].start) - requestedMin);
+
+    for (const slot of windowSlots) {
+      const slotMin = timeToMinutes(slot.start);
+      const diff = Math.abs(slotMin - requestedMin);
+
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestSlot = slot;
+      }
+    }
+
+    return bestSlot;
+  }
+
+  // Eğer FARKLI window ise, ilk slot'u döndür
+  return windowSlots[0];
+}
+
 function isTimeGapSufficient(time1, time2, minGap = MIN_PRESENT_GAP_MIN) {
   return Math.abs(timeToMinutes(time1) - timeToMinutes(time2)) >= minGap;
 }
@@ -1341,6 +1403,8 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
     if (hit) {
       const det = getServiceDetails(serviceInfo, serviceName, ex);
       if (!det) continue;
+      const basePriority = 1;
+      const timeWindowPenalty = calculateTimeWindowPenalty(hit.start, filters?.time_window);
       candidates.push({
         date: dateStr,
         start: hit.start,
@@ -1350,7 +1414,7 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
         price: parseInt(det.fiyat),
         duration: parseInt(det.sure),
         reason: "Aynı saat – farklı uzman",
-        priority: 1,
+        priority: basePriority + timeWindowPenalty,
         time_window: getTimeWindow(hit.start)
       });
     }
@@ -1371,11 +1435,14 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
           const selected = slotsWithDifferentTimes[0];
           const det = getServiceDetails(serviceInfo, serviceName, preferredExpert);
           if (!det) continue;
-          
-          const windowName = window === 'morning' ? 'Sabah' : 
-                             window === 'noon' ? 'Öğle' : 
+
+          const windowName = window === 'morning' ? 'Sabah' :
+                             window === 'noon' ? 'Öğle' :
                              window === 'afternoon' ? 'Öğleden sonra' : 'Akşam';
-          
+
+          const basePriority = 2;
+          const timeWindowPenalty = calculateTimeWindowPenalty(selected.start, filters?.time_window);
+
           candidates.push({
             date: dateStr,
             start: selected.start,
@@ -1385,7 +1452,7 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
             price: parseInt(det.fiyat),
             duration: parseInt(det.sure),
             reason: `${windowName} saati – tercih edilen uzman`,
-            priority: 2,
+            priority: basePriority + timeWindowPenalty,
             time_window: window
           });
         }
@@ -1418,11 +1485,14 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
           const selected = nSlots[0];
           const det = getServiceDetails(serviceInfo, serviceName, preferredExpert);
           if (!det) continue;
-          
-          const windowName = window === 'morning' ? 'sabah' : 
-                            window === 'noon' ? 'öğle' : 
+
+          const windowName = window === 'morning' ? 'sabah' :
+                            window === 'noon' ? 'öğle' :
                             window === 'afternoon' ? 'öğleden sonra' : 'akşam';
-          
+
+          const basePriority = 3 + i;
+          const timeWindowPenalty = calculateTimeWindowPenalty(selected.start, filters?.time_window);
+
           candidates.push({
             date: nd,
             start: selected.start,
@@ -1432,10 +1502,10 @@ function generateSingleServiceAlternatives(serviceName, preferredExpert, dateStr
             price: parseInt(det.fiyat),
             duration: parseInt(det.sure),
             reason: i === 1 ? `Ertesi gün – ${windowName}` : `${i} gün sonra – ${windowName}`,
-            priority: 3 + i,
+            priority: basePriority + timeWindowPenalty,
             time_window: window
           });
-          
+
           break;
         }
       }
@@ -1451,65 +1521,83 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
   const candidates = [];
   const filters = constraints?.filters || {};
   const sameDayRequired = constraints?.same_day_required !== false;
-  
+
   const mainService = services.find(s => isNailAnchor(s.name)) || services[0];
   const otherServices = services.filter(s => s !== mainService);
   const preferredExpert = mainService.expert_preference ? canonicalExpert(mainService.expert_preference) : null;
-  
+
   let allExperts = eligibleExpertsForService(mainService.name, serviceInfo);
-  
+
   const originalStrict = filters?.nail_expert_strict;
   const softFilters = { ...filters, nail_expert_strict: false };
-  
-  const timeWindows = ["morning", "noon", "afternoon", "evening"];
-  
-  for (const timeWindow of timeWindows) {
+
+  // ✅ FIX: Strict mode kontrolü - Eğer strict ise sadece requested window ara
+  const isStrictMode = filters?.time_window_strict === true;
+  const requestedTimeWindow = filters?.time_window;
+
+  let timeWindowsToSearch = ["morning", "noon", "afternoon", "evening"];
+
+  if (isStrictMode && requestedTimeWindow && requestedTimeWindow.start) {
+    // Strict mode: Sadece requested window'u ara
+    const requestedWindow = getTimeWindowName(requestedTimeWindow.start);
+    timeWindowsToSearch = [requestedWindow];
+  }
+
+  // ✅ FIX: time_window field'ını kaldır, strict mode göre ayarla
+  const { time_window, ...filtersWithoutTimeWindow } = softFilters;
+  const flexibleFilters = {
+    ...filtersWithoutTimeWindow,
+    time_window_strict: false  // Manual filtering yapıyoruz
+  };
+
+  for (const timeWindow of timeWindowsToSearch) {
     const windowStart = timeWindow === "morning" ? TIME_WINDOWS.MORNING.start :
                          timeWindow === "noon" ? TIME_WINDOWS.NOON.start :
                          timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.start :
                          TIME_WINDOWS.EVENING.start;
-    
+
     const windowEnd = timeWindow === "morning" ? TIME_WINDOWS.MORNING.end :
                        timeWindow === "noon" ? TIME_WINDOWS.NOON.end :
                        timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.end :
                        TIME_WINDOWS.EVENING.end;
-    
-    const windowFilters = {
-      ...softFilters,
-      time_window: {
-        start: minutesToTime(windowStart),
-        end: minutesToTime(windowEnd)
-      },
-      time_window_strict: true
-    };
-    
+
+    // Her window için slot ara (SOFT filter ile)
     if (preferredExpert) {
-      const slots = findAvailableSlots(
-        dateStr, 
-        preferredExpert, 
-        mainService, 
-        existingAppointments, 
-        staffLeaves, 
-        serviceInfo, 
-        windowFilters,
+      const allSlots = findAvailableSlots(
+        dateStr,
+        preferredExpert,
+        mainService,
+        existingAppointments,
+        staffLeaves,
+        serviceInfo,
+        flexibleFilters,  // 👈 Soft filter
         currentTime
       );
-      
-      if (slots.length > 0) {
+
+      // Bu window'a ait slotları filtrele
+      const windowSlots = allSlots.filter(slot => {
+        const slotMin = timeToMinutes(slot.start);
+        return slotMin >= windowStart && slotMin < windowEnd;
+      });
+
+      if (windowSlots.length > 0) {
         const mainDet = getServiceDetails(serviceInfo, mainService.name, preferredExpert);
         if (!mainDet) continue;
-        
+
+        // En uygun slot'u seç (aynı window ise requested time'a yakın, farklı ise ilk slot)
+        const bestSlot = selectBestSlotFromWindow(windowSlots, constraints?.filters?.time_window, timeWindow);
+
         const refSlot = {
           date: dateStr,
           expert: preferredExpert,
           service: mainService.name,
-          start: slots[0].start,
-          end: slots[0].end,
+          start: bestSlot.start,
+          end: bestSlot.end,
           duration: parseInt(mainDet.sure),
           price: parseInt(mainDet.fiyat),
           for_person: mainService.for_person || null
         };
-        
+
         const combo = tryScheduleAllServices(
           refSlot,
           otherServices,
@@ -1520,51 +1608,63 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           { ...constraints, filters: softFilters, same_day_required: sameDayRequired },
           currentTime
         );
-        
+
         if (combo && combo.complete) {
-          const windowName = timeWindow === 'morning' ? 'Sabah' : 
-                             timeWindow === 'noon' ? 'Öğle' : 
+          const windowName = timeWindow === 'morning' ? 'Sabah' :
+                             timeWindow === 'noon' ? 'Öğle' :
                              timeWindow === 'afternoon' ? 'Öğleden sonra' : 'Akşam';
-                             
+
+          const basePriority = 1;
+          const timeWindowPenalty = calculateTimeWindowPenalty(refSlot.start, constraints?.filters?.time_window);
+
           candidates.push({
             ...combo,
             reason: `${windowName} saati – tercih edilen uzman`,
-            priority: 1,
+            priority: basePriority + timeWindowPenalty,
             time_window: timeWindow
           });
-          
+
           continue;
         }
       }
     }
-    
+
     for (const ex of allExperts.filter(e => e !== preferredExpert)) {
-      const slots = findAvailableSlots(
-        dateStr, 
-        ex, 
-        mainService, 
-        existingAppointments, 
-        staffLeaves, 
-        serviceInfo, 
-        windowFilters,
+      const allSlots = findAvailableSlots(
+        dateStr,
+        ex,
+        mainService,
+        existingAppointments,
+        staffLeaves,
+        serviceInfo,
+        flexibleFilters,  // 👈 Soft filter
         currentTime
       );
-      
-      if (slots.length > 0) {
+
+      // Bu window'a ait slotları filtrele
+      const windowSlots = allSlots.filter(slot => {
+        const slotMin = timeToMinutes(slot.start);
+        return slotMin >= windowStart && slotMin < windowEnd;
+      });
+
+      if (windowSlots.length > 0) {
         const mainDet = getServiceDetails(serviceInfo, mainService.name, ex);
         if (!mainDet) continue;
-        
+
+        // En uygun slot'u seç (aynı window ise requested time'a yakın, farklı ise ilk slot)
+        const bestSlot = selectBestSlotFromWindow(windowSlots, constraints?.filters?.time_window, timeWindow);
+
         const refSlot = {
           date: dateStr,
           expert: canonicalExpert(ex),
           service: mainService.name,
-          start: slots[0].start,
-          end: slots[0].end,
+          start: bestSlot.start,
+          end: bestSlot.end,
           duration: parseInt(mainDet.sure),
           price: parseInt(mainDet.fiyat),
           for_person: mainService.for_person || null
         };
-        
+
         const combo = tryScheduleAllServices(
           refSlot,
           otherServices,
@@ -1575,42 +1675,56 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           { ...constraints, filters: softFilters, same_day_required: sameDayRequired },
           currentTime
         );
-        
+
         if (combo && combo.complete) {
-          const windowName = timeWindow === 'morning' ? 'Sabah' : 
-                             timeWindow === 'noon' ? 'Öğle' : 
+          const windowName = timeWindow === 'morning' ? 'Sabah' :
+                             timeWindow === 'noon' ? 'Öğle' :
                              timeWindow === 'afternoon' ? 'Öğleden sonra' : 'Akşam';
-                             
+
+          const basePriority = 2;
+          const timeWindowPenalty = calculateTimeWindowPenalty(refSlot.start, constraints?.filters?.time_window);
+
           candidates.push({
             ...combo,
             reason: `${windowName} saati – alternatif uzman`,
-            priority: 2,
+            priority: basePriority + timeWindowPenalty,
             time_window: timeWindow
           });
-          
+
           break;
         }
       }
     }
   }
-  
-  if (preferredExpert) {
+
+  // ✅ YENİ: Future days logic - preferred yoksa ilk expert'i kullan
+  const expertForFutureDays = preferredExpert || allExperts[0];
+
+  if (expertForFutureDays && candidates.length < 10) {
     const base = parseTurkishDate(dateStr);
     const latestDate = filters?.latest_date ? parseTurkishDate(filters.latest_date) : null;
-    const maxDays = latestDate 
+    const maxDays = latestDate
       ? Math.ceil((latestDate - base) / (1000 * 60 * 60 * 24))
       : 7;
-    
+
     for (let i = 1; i <= Math.min(maxDays, 14); i++) {
       const next = new Date(base);
-      next.setDate(next.getDate() + 1);
+      next.setDate(next.getDate() + i);
       if (next.getDay() === WORKING_HOURS.closed_day) continue;
       const nd = formatTurkishDate(next);
-      
-      for (const timeWindow of ["morning", "afternoon"]) {
-        const windowStart = timeWindow === "morning" ? TIME_WINDOWS.MORNING.start : TIME_WINDOWS.AFTERNOON.start;
-        const windowEnd = timeWindow === "morning" ? TIME_WINDOWS.MORNING.end : TIME_WINDOWS.AFTERNOON.end;
-        
+
+      // ✅ Tüm time windows'ları ara
+      for (const timeWindow of ["morning", "noon", "afternoon", "evening"]) {
+        const windowStart = timeWindow === "morning" ? TIME_WINDOWS.MORNING.start :
+                             timeWindow === "noon" ? TIME_WINDOWS.NOON.start :
+                             timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.start :
+                             TIME_WINDOWS.EVENING.start;
+
+        const windowEnd = timeWindow === "morning" ? TIME_WINDOWS.MORNING.end :
+                           timeWindow === "noon" ? TIME_WINDOWS.NOON.end :
+                           timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.end :
+                           TIME_WINDOWS.EVENING.end;
+
         const windowFilters = {
           ...softFilters,
           time_window: {
@@ -1619,33 +1733,35 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           },
           time_window_strict: true
         };
-        
+
         const slots = findAvailableSlots(
-          nd, 
-          preferredExpert, 
-          mainService, 
-          existingAppointments, 
-          staffLeaves, 
-          serviceInfo, 
+          nd,
+          expertForFutureDays,
+          mainService,
+          existingAppointments,
+          staffLeaves,
+          serviceInfo,
           windowFilters,
           null
         );
-        
+
         if (slots.length > 0) {
-          const mainDet = getServiceDetails(serviceInfo, mainService.name, preferredExpert);
+          const mainDet = getServiceDetails(serviceInfo, mainService.name, expertForFutureDays);
           if (!mainDet) continue;
-          
+
+          const bestSlot = selectBestSlotFromWindow(slots, constraints?.filters?.time_window, timeWindow);
+
           const refSlot = {
             date: nd,
-            expert: preferredExpert,
+            expert: expertForFutureDays,
             service: mainService.name,
-            start: slots[0].start,
-            end: slots[0].end,
+            start: bestSlot.start,
+            end: bestSlot.end,
             duration: parseInt(mainDet.sure),
             price: parseInt(mainDet.fiyat),
             for_person: mainService.for_person || null
           };
-          
+
           const combo = tryScheduleAllServices(
             refSlot,
             otherServices,
@@ -1656,26 +1772,34 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
             { ...constraints, filters: softFilters, same_day_required: sameDayRequired },
             null
           );
-          
+
           if (combo && combo.complete) {
-            const windowName = timeWindow === 'morning' ? 'sabah' : 'öğleden sonra';
-            
+            const windowName = timeWindow === 'morning' ? 'sabah' :
+                               timeWindow === 'noon' ? 'öğle' :
+                               timeWindow === 'afternoon' ? 'öğleden sonra' : 'akşam';
+
+            const basePriority = 3 + i;
+            const timeWindowPenalty = calculateTimeWindowPenalty(refSlot.start, constraints?.filters?.time_window);
+
+            const reasonPrefix = preferredExpert ? 'tercih edilen uzman' : 'müsait uzman';
+
             candidates.push({
               ...combo,
-              reason: i === 1 ? `Ertesi gün ${windowName} – tercih edilen uzman` : `${i} gün sonra ${windowName} – tercih edilen uzman`,
-              priority: 3 + i,
+              reason: i === 1 ? `Ertesi gün ${windowName} – ${reasonPrefix}` : `${i} gün sonra ${windowName} – ${reasonPrefix}`,
+              priority: basePriority + timeWindowPenalty,
               time_window: timeWindow
             });
-            
-            break;
+
+            // ✅ FIX: Kaldırıldı - tüm time windows için alternatif üretilsin
+            if (candidates.length >= 10) break;  // Toplam 10'a ulaştıysak bu window loop'undan çık
           }
         }
       }
-      
-      if (candidates.length >= 3) break;
+
+      if (candidates.length >= 10) break;  // ✅ 10 senaryoya kadar devam et
     }
   }
-  
+
   if (originalStrict && preferredExpert) {
     candidates.forEach(c => {
       const mainApt = c.appointments.find(a => a.service === mainService.name);
@@ -1686,49 +1810,104 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
     });
   }
   
+  // ✅ YENİ: 10 farklı senaryo seç (AI'a göndermek için)
+  // Çeşitlilik stratejisi: farklı time windows, farklı experts, farklı dates
+
+  // Kategorize scenarios
+  const sameDay = candidates.filter(c => c.appointments[0].date === dateStr);
+  const otherDays = candidates.filter(c => c.appointments[0].date !== dateStr);
+
+  let sameDayPreferred = [];
+  let sameDayAlternative = [];
+  let otherDaysPreferred = [];
+  let otherDaysAlternative = [];
+
+  if (preferredExpert) {
+    const preferredExpertName = preferredExpert;
+    sameDayPreferred = sameDay.filter(c =>
+      c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+    sameDayAlternative = sameDay.filter(c =>
+      !c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+    otherDaysPreferred = otherDays.filter(c =>
+      c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+    otherDaysAlternative = otherDays.filter(c =>
+      !c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+  } else {
+    // Eğer preferred expert yoksa, tümü "preferred" sayılır
+    sameDayPreferred = sameDay;
+    otherDaysPreferred = otherDays;
+  }
+
+  // Sort each category by priority
+  sameDayPreferred.sort((a, b) => a.priority - b.priority);
+  sameDayAlternative.sort((a, b) => a.priority - b.priority);
+  otherDaysPreferred.sort((a, b) => a.priority - b.priority);
+  otherDaysAlternative.sort((a, b) => a.priority - b.priority);
+
   const selected = [];
-  const timeWindowGroups = {};
-  
-  candidates.forEach(c => {
-    const window = c.time_window || "other";
-    if (!timeWindowGroups[window]) timeWindowGroups[window] = [];
-    timeWindowGroups[window].push(c);
-  });
-  
-  for (const window of Object.keys(timeWindowGroups)) {
-    if (timeWindowGroups[window].length > 0) {
-      const sorted = timeWindowGroups[window].sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return 0;
-      });
-      
-      selected.push(sorted[0]);
-      
-      if (selected.length >= 3) break;
+
+  // 1. Aynı gün + Preferred expert + İstenen time window (EN ÖNCELİKLİ - 1 senaryo)
+  if (sameDayPreferred.length > 0) {
+    selected.push(sameDayPreferred[0]);
+  }
+
+  // 2. Aynı gün + Preferred expert + Diğer time windows (max 3 senaryo)
+  // Her window'dan farklı bir tane al
+  const windowsSeen = new Set();
+  for (const scenario of sameDayPreferred) {
+    if (selected.includes(scenario)) continue;
+    if (selected.length >= 4) break; // 1 + 3 = 4
+
+    const window = scenario.time_window;
+    if (!windowsSeen.has(window)) {
+      windowsSeen.add(window);
+      selected.push(scenario);
     }
   }
-  
-  if (selected.length < 3) {
-    const sorted = candidates
+
+  // 3. Aynı gün + Alternative experts (max 2 senaryo)
+  for (const scenario of sameDayAlternative) {
+    if (selected.length >= 6) break; // 4 + 2 = 6
+
+    // Çakışma kontrolü
+    const conflict = selected.some(s =>
+      s.appointments[0].date === scenario.appointments[0].date &&
+      Math.abs(timeToMinutes(s.appointments[0].start) - timeToMinutes(scenario.appointments[0].start)) < MIN_PRESENT_GAP_MIN
+    );
+
+    if (!conflict) {
+      selected.push(scenario);
+    }
+  }
+
+  // 4. Farklı günler + Preferred expert (max 2 senaryo)
+  for (const scenario of otherDaysPreferred) {
+    if (selected.length >= 8) break; // 6 + 2 = 8
+    selected.push(scenario);
+  }
+
+  // 5. Farklı günler + Alternative experts (max 2 senaryo)
+  for (const scenario of otherDaysAlternative) {
+    if (selected.length >= 10) break; // 8 + 2 = 10
+    selected.push(scenario);
+  }
+
+  // Eğer hala 10'a ulaşmadıysa, kalan candidates'tan en iyi priority'leri ekle
+  if (selected.length < 10) {
+    const remaining = candidates
       .filter(c => !selected.includes(c))
-      .sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return 0;
-      });
-    
-    for (const c of sorted) {
-      const conflict = selected.some(s => 
-        s.appointments[0].date === c.appointments[0].date && 
-        !isTimeGapSufficient(s.appointments[0].start, c.appointments[0].start, MIN_PRESENT_GAP_MIN)
-      );
-      
-      if (!conflict) {
-        selected.push(c);
-        if (selected.length >= 3) break;
-      }
+      .sort((a, b) => a.priority - b.priority);
+
+    for (const scenario of remaining) {
+      if (selected.length >= 10) break;
+      selected.push(scenario);
     }
   }
-  
+
   return selected;
 }
 
@@ -1939,11 +2118,11 @@ function main() {
 
     if (!exactMatch) {
       const alternatives = generateMultiServiceAlternatives(services, dateStr, targetTime, existingAppointments, staffLeaves, serviceInfo, effectiveConstraints, currentTime);
-      
+
       if (alternatives.length) {
         const options = alternatives.map((combo, idx) => ({
           id: idx + 1,
-          score: combo.score,
+          score: combo.priority,  // Priority score (düşük = daha iyi)
           complete: combo.complete,
           group_appointments: combo.appointments.map(apt => ({  // ✅ Nested format
             for_person: apt.for_person || "self",
@@ -2143,4 +2322,14 @@ function main() {
   } }];
 }
 
-return main();
+// Support both n8n and Node.js module usage
+if (typeof $input !== 'undefined' && typeof module === 'undefined') {
+  // n8n execution context
+  return main();
+} else {
+  // Node.js module context
+  const result = main();
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = result;
+  }
+}
