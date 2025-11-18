@@ -20,7 +20,6 @@ Ana randevu yönetim AI agent'ı.
 - `musteri_randevu_ekle` - Yeni randevu
 - `musteri_randevu_guncelle` - İptal/değiştir
 - `availability_checker` - Müsaitlik kontrolü (subworkflow)
-- `paket_kontrol` - Paket kontrol
 
 ## Önemli Notlar
 1. Tool çağrılarında ara mesaj gönderme
