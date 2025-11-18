@@ -16,25 +16,19 @@ Ana agent'tan gelen basit, doğal dil formatındaki müsaitlik taleplerini alır
 
 ## Kullanım
 
-### Input (Ana Agent'tan)
+### Input (Ana Agent'tan - Doğal Dil)
 
-```json
-{
-  "request_type": "single",
-  "services": [
-    {
-      "service_name": "Protez Tırnak",
-      "expert_preference": "Pınar",
-      "for_person": "self"
-    }
-  ],
-  "date_request": "yarın sabah",
-  "time_hint": "sabah",
-  "strict_date": false,
-  "strict_time": false,
-  "strict_expert": false,
-  "current_datetime": "18/11/2025 14:04"
-}
+```
+Yarın sabah, Pınar'dan protez tırnak. Tek kişi için. Sabah saatleri tercih ediliyor. Tarih ve saat esnekliği var, uzman değiştirilebilir.
+
+Şu an: 18/11/2025 14:04
+```
+
+**Başka bir örnek:**
+```
+SADECE 27 Kasım, KESINLIKLE akşam saatleri, Pınar'dan protez tırnak ve Sevcan'dan lazer tüm bacak. Tek kişi için. Tarih değiştirilemez, saat değiştirilemez, uzman değişebilir.
+
+Şu an: 18/11/2025 14:04
 ```
 
 ### Output (Availability Checker için)
@@ -89,19 +83,14 @@ Ana agent'tan gelen basit, doğal dil formatındaki müsaitlik taleplerini alır
 ## Test
 
 ```bash
-# Test input
-{
-  "request_type": "single",
-  "services": [{"service_name": "Protez Tırnak", "expert_preference": "Pınar", "for_person": "self"}],
-  "date_request": "yarın akşam",
-  "time_hint": "akşam",
-  "strict_date": false,
-  "strict_time": false,
-  "strict_expert": false,
-  "current_datetime": "18/11/2025 14:04"
-}
+# Test input (doğal dil)
+Yarın akşam, Pınar'dan protez tırnak. Tek kişi için. Akşam saatleri tercih ediliyor. Tarih ve saat esnekliği var, uzman değiştirilebilir.
 
-# Expected: Valid JSON with type: "specific", value: "19/11/2025"
+Şu an: 18/11/2025 14:04
+
+# Expected: Valid JSON with date_info.type: "specific", date_info.value: "19/11/2025",
+# constraints.filters.time_window: {"start": "18:00", "end": "20:00"},
+# constraints.filters.nail_expert_strict: false
 ```
 
 ## Dosyalar

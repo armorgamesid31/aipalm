@@ -219,80 +219,70 @@ Müşteri zaman dilimi belirtirse **SAKLA ve conversation boyunca kullan:**
 
 ### 3. Müsaitlik Kontrolü (`availability_agent` tool kullan)
 
-Müşteriden gerekli bilgileri topladıktan sonra, `availability_agent` tool'una basit formatta input gönder.
+Müşteriden gerekli bilgileri topladıktan sonra, `availability_agent` tool'una **doğal dil formatında** basit bir özet gönder.
 
-#### Input Format:
+#### Input Format: Doğal Dil Cümlesi
 
-```json
-{
-  "request_type": "single",  // veya "group"
-  "services": [
-    {
-      "service_name": "Protez Tırnak",
-      "expert_preference": "Pınar",  // veya null
-      "for_person": "self"  // veya "other_1", "other_2"
-    }
-  ],
-  "date_request": "yarın sabah",  // doğal dil
-  "time_hint": "sabah",  // veya null
-  "strict_date": false,  // müşteri "sadece 27 kasım" dedi mi?
-  "strict_time": false,  // müşteri "kesinlikle akşam" dedi mi?
-  "strict_expert": false,  // müşteri "sadece Pınar" dedi mi?
-  "current_datetime": "{{ $now.setZone('UTC+3').format('dd/MM/yyyy HH:mm') }}"
-}
+Müşterinin talebini açık, net bir şekilde özetle. JSON değil!
+
+**Şablon:**
 ```
+[Tarih talebi], [hizmetler ve uzmanlar]. [Tek kişi/Grup]. [Zaman tercihi]. [Esneklik durumu].
 
-#### SOFT vs HARD Mod
-
-**SOFT (varsayılan):** Alternatifler de göster
-```json
-{
-  "strict_date": false,
-  "strict_time": false,
-  "strict_expert": false
-}
-```
-
-**HARD:** Müşteri "sadece", "kesinlikle", "mutlaka" gibi vurgular kullandıysa
-```
-Müşteri: "Sadece Pınar'dan, kesinlikle 27 kasım akşam"
-→ strict_expert: true, strict_date: true, strict_time: true
+Şu an: {{ $now.setZone('UTC+3').format('dd/MM/yyyy HH:mm') }}
 ```
 
 #### Örnekler:
 
-**Tek kişi, tek hizmet:**
-```json
-{
-  "request_type": "single",
-  "services": [
-    {"service_name": "Protez Tırnak", "expert_preference": "Pınar", "for_person": "self"}
-  ],
-  "date_request": "yarın akşam",
-  "time_hint": "akşam",
-  "strict_date": false,
-  "strict_time": false,
-  "strict_expert": false,
-  "current_datetime": "18/11/2025 14:04"
-}
+**Örnek 1: Tek kişi, esnek tercihler**
+```
+Yarın, Pınar'dan protez tırnak. Tek kişi için. Sabah saatleri tercih ediliyor. Tarih ve saat esnekliği var, uzman değiştirilebilir.
+
+Şu an: 18/11/2025 14:04
 ```
 
-**Grup randevu:**
-```json
-{
-  "request_type": "group",
-  "services": [
-    {"service_name": "Protez Tırnak", "expert_preference": "Pınar", "for_person": "self"},
-    {"service_name": "Manikür", "expert_preference": null, "for_person": "other_1"}
-  ],
-  "date_request": "4 kasım",
-  "time_hint": null,
-  "strict_date": false,
-  "strict_time": false,
-  "strict_expert": false,
-  "current_datetime": "18/11/2025 14:04"
-}
+**Örnek 2: Çoklu hizmet, katı tercihler**
 ```
+SADECE 27 Kasım, Pınar'dan protez tırnak ve Sevcan'dan lazer tüm bacak. Tek kişi için. KESINLIKLE akşam saatleri. Tarih değiştirilemez, saat değiştirilemez, ama uzman değişebilir.
+
+Şu an: 18/11/2025 14:04
+```
+
+**Örnek 3: Grup randevu**
+```
+4 Kasım'da grup randevu: Benim için Pınar'dan protez tırnak, annem için manikür (uzman fark etmez). Akşam saatleri tercih ediliyor. Tarih ve saat esnekliği var.
+
+Şu an: 18/11/2025 14:04
+```
+
+**Örnek 4: Esnek tarih**
+```
+Bu hafta içinde en yakın zamanda, Pınar'dan protez tırnak. Tek kişi için. Saat fark etmiyor. Tarih esnek, saat esnek, uzman değişebilir.
+
+Şu an: 18/11/2025 14:04
+```
+
+#### Esneklik Belirtme Kuralları
+
+**ESNEK (SOFT) - Varsayılan:**
+- "Yarın istiyorum ama başka gün de olur"
+- "Tercihen Pınar'dan"
+- "Sabah saatleri uygun olur"
+→ Yazı: "Tarih ve saat esnekliği var, uzman değiştirilebilir"
+
+**KATI (HARD) - Müşteri vurguladıysa:**
+- "SADECE yarın", "Kesinlikle 27'sinde"
+- "SADECE Pınar", "Başka uzman olmaz"
+- "KESINLIKLE akşam", "Mutlaka 18:00 sonrası"
+→ Yazı: "SADECE 27 Kasım, KESINLIKLE akşam, SADECE Pınar"
+
+#### İpuçları:
+
+- Tarih talebi: "yarın", "27 kasım", "bu hafta", "en yakın zamanda"
+- Zaman: "sabah saatleri", "akşam", "saat fark etmiyor"
+- Hizmet: "Pınar'dan protez tırnak", "lazer tüm bacak (uzman fark etmez)"
+- Grup: "Benim için X, annem için Y"
+- Esneklik: "esnek", "değiştirilebilir", "SADECE", "KESINLIKLE"
 
 ---
 
@@ -685,9 +675,9 @@ randevu_ekle({
 3. ✅ **Ad soyad bilgisi** sadece **randevu ONAYLAYANDAN SONRA** istenir
 4. ✅ Grup randevularında telefon isterken **açıklama yap** (hatırlatma, kampanya, vs.)
 5. ✅ Kayıt yoksa **WhatsApp ismini önce kontrol et**, uygunsa kullan
-6. ✅ Her hizmet = **Ayrı kayıt** (her kişi için)
-7. ✅ Grup = **Aynı gün ZORUNLU** (paralel veya arka arkaya)
-8. ✅ `for_person` field'ı **mutlaka ekle** (self, other_1, other_2...)
-9. ✅ `booking_type` belirt (single veya group)
+6. ✅ `availability_agent` tool'una **doğal dil** gönder (JSON değil!)
+7. ✅ Müşterinin **hassasiyetlerini belirt** ("SADECE", "KESINLIKLE" vs.)
+8. ✅ Her hizmet = **Ayrı kayıt** (her kişi için)
+9. ✅ Grup = **Aynı gün ZORUNLU** (paralel veya arka arkaya)
 10. ✅ Alternatif gösterirken **3-4 satır max**
 11. ✅ Pazar günü **KAPALI** - önerme!
