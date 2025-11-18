@@ -154,6 +154,46 @@ function calculateTimeWindowPenalty(slotStartTime, requestedTimeWindow) {
   return distance * 2;
 }
 
+/**
+ * Window içindeki slotlardan en uygun olanı seçer
+ * @param {Array} windowSlots - Window içindeki tüm slotlar
+ * @param {Object} requestedTimeWindow - İstenen time window (örn: {start: "19:00", end: "20:00"})
+ * @param {string} currentWindow - Şu anki window adı ("morning", "noon", "afternoon", "evening")
+ * @returns {Object} En uygun slot
+ */
+function selectBestSlotFromWindow(windowSlots, requestedTimeWindow, currentWindow) {
+  if (!windowSlots || windowSlots.length === 0) return null;
+
+  // Eğer requested time yoksa, ilk slot'u döndür
+  if (!requestedTimeWindow || !requestedTimeWindow.start) {
+    return windowSlots[0];
+  }
+
+  const requestedMin = timeToMinutes(requestedTimeWindow.start);
+  const requestedWindow = getTimeWindowName(requestedTimeWindow.start);
+
+  // Eğer AYNI window içindeyse, requested time'a en yakın slot'u seç
+  if (currentWindow === requestedWindow) {
+    let bestSlot = windowSlots[0];
+    let bestDiff = Math.abs(timeToMinutes(windowSlots[0].start) - requestedMin);
+
+    for (const slot of windowSlots) {
+      const slotMin = timeToMinutes(slot.start);
+      const diff = Math.abs(slotMin - requestedMin);
+
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestSlot = slot;
+      }
+    }
+
+    return bestSlot;
+  }
+
+  // Eğer FARKLI window ise, ilk slot'u döndür
+  return windowSlots[0];
+}
+
 function isTimeGapSufficient(time1, time2, minGap = MIN_PRESENT_GAP_MIN) {
   return Math.abs(timeToMinutes(time1) - timeToMinutes(time2)) >= minGap;
 }
@@ -1534,12 +1574,15 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
         const mainDet = getServiceDetails(serviceInfo, mainService.name, preferredExpert);
         if (!mainDet) continue;
 
+        // En uygun slot'u seç (aynı window ise requested time'a yakın, farklı ise ilk slot)
+        const bestSlot = selectBestSlotFromWindow(windowSlots, constraints?.filters?.time_window, timeWindow);
+
         const refSlot = {
           date: dateStr,
           expert: preferredExpert,
           service: mainService.name,
-          start: windowSlots[0].start,
-          end: windowSlots[0].end,
+          start: bestSlot.start,
+          end: bestSlot.end,
           duration: parseInt(mainDet.sure),
           price: parseInt(mainDet.fiyat),
           for_person: mainService.for_person || null
@@ -1598,12 +1641,15 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
         const mainDet = getServiceDetails(serviceInfo, mainService.name, ex);
         if (!mainDet) continue;
 
+        // En uygun slot'u seç (aynı window ise requested time'a yakın, farklı ise ilk slot)
+        const bestSlot = selectBestSlotFromWindow(windowSlots, constraints?.filters?.time_window, timeWindow);
+
         const refSlot = {
           date: dateStr,
           expert: canonicalExpert(ex),
           service: mainService.name,
-          start: windowSlots[0].start,
-          end: windowSlots[0].end,
+          start: bestSlot.start,
+          end: bestSlot.end,
           duration: parseInt(mainDet.sure),
           price: parseInt(mainDet.fiyat),
           for_person: mainService.for_person || null
@@ -1650,14 +1696,22 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
     
     for (let i = 1; i <= Math.min(maxDays, 14); i++) {
       const next = new Date(base);
-      next.setDate(next.getDate() + 1);
+      next.setDate(next.getDate() + i);  // ✅ FIX: +i yerine +1
       if (next.getDay() === WORKING_HOURS.closed_day) continue;
       const nd = formatTurkishDate(next);
-      
-      for (const timeWindow of ["morning", "afternoon"]) {
-        const windowStart = timeWindow === "morning" ? TIME_WINDOWS.MORNING.start : TIME_WINDOWS.AFTERNOON.start;
-        const windowEnd = timeWindow === "morning" ? TIME_WINDOWS.MORNING.end : TIME_WINDOWS.AFTERNOON.end;
-        
+
+      // ✅ FIX: Tüm time windows'ları ara (morning, noon, afternoon, evening)
+      for (const timeWindow of ["morning", "noon", "afternoon", "evening"]) {
+        const windowStart = timeWindow === "morning" ? TIME_WINDOWS.MORNING.start :
+                             timeWindow === "noon" ? TIME_WINDOWS.NOON.start :
+                             timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.start :
+                             TIME_WINDOWS.EVENING.start;
+
+        const windowEnd = timeWindow === "morning" ? TIME_WINDOWS.MORNING.end :
+                           timeWindow === "noon" ? TIME_WINDOWS.NOON.end :
+                           timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.end :
+                           TIME_WINDOWS.EVENING.end;
+
         const windowFilters = {
           ...softFilters,
           time_window: {
@@ -1666,28 +1720,31 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           },
           time_window_strict: true
         };
-        
+
         const slots = findAvailableSlots(
-          nd, 
-          preferredExpert, 
-          mainService, 
-          existingAppointments, 
-          staffLeaves, 
-          serviceInfo, 
+          nd,
+          preferredExpert,
+          mainService,
+          existingAppointments,
+          staffLeaves,
+          serviceInfo,
           windowFilters,
           null
         );
-        
+
         if (slots.length > 0) {
           const mainDet = getServiceDetails(serviceInfo, mainService.name, preferredExpert);
           if (!mainDet) continue;
-          
+
+          // En uygun slot'u seç (aynı window ise requested time'a yakın, farklı ise ilk slot)
+          const bestSlot = selectBestSlotFromWindow(slots, constraints?.filters?.time_window, timeWindow);
+
           const refSlot = {
             date: nd,
             expert: preferredExpert,
             service: mainService.name,
-            start: slots[0].start,
-            end: slots[0].end,
+            start: bestSlot.start,
+            end: bestSlot.end,
             duration: parseInt(mainDet.sure),
             price: parseInt(mainDet.fiyat),
             for_person: mainService.for_person || null
@@ -1705,7 +1762,9 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
           );
           
           if (combo && combo.complete) {
-            const windowName = timeWindow === 'morning' ? 'sabah' : 'öğleden sonra';
+            const windowName = timeWindow === 'morning' ? 'sabah' :
+                               timeWindow === 'noon' ? 'öğle' :
+                               timeWindow === 'afternoon' ? 'öğleden sonra' : 'akşam';
 
             const basePriority = 3 + i;
             const timeWindowPenalty = calculateTimeWindowPenalty(refSlot.start, constraints?.filters?.time_window);
@@ -1736,27 +1795,35 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
     });
   }
   
-  const selected = [];
+  // ✅ FIX: Her window'dan en iyi alternatifi seç, sonra priority'ye göre sort et
   const timeWindowGroups = {};
-  
+
   candidates.forEach(c => {
     const window = c.time_window || "other";
     if (!timeWindowGroups[window]) timeWindowGroups[window] = [];
     timeWindowGroups[window].push(c);
   });
-  
+
+  // Her window'dan en iyi alternatifi al
+  const windowBest = [];
   for (const window of Object.keys(timeWindowGroups)) {
     if (timeWindowGroups[window].length > 0) {
       const sorted = timeWindowGroups[window].sort((a, b) => {
         if (a.priority !== b.priority) return a.priority - b.priority;
         return 0;
       });
-      
-      selected.push(sorted[0]);
-      
-      if (selected.length >= 3) break;
+
+      windowBest.push(sorted[0]);
     }
   }
+
+  // Tüm window'ların en iyilerini priority'ye göre sort et ve ilk 3'ünü al
+  windowBest.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return 0;
+  });
+
+  const selected = windowBest.slice(0, 3);
   
   if (selected.length < 3) {
     const sorted = candidates
