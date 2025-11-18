@@ -1531,16 +1531,26 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
   const originalStrict = filters?.nail_expert_strict;
   const softFilters = { ...filters, nail_expert_strict: false };
 
-  const timeWindows = ["morning", "noon", "afternoon", "evening"];
+  // ✅ FIX: Strict mode kontrolü - Eğer strict ise sadece requested window ara
+  const isStrictMode = filters?.time_window_strict === true;
+  const requestedTimeWindow = filters?.time_window;
 
-  // ✅ FIX: time_window field'ını kaldır, sadece strict: false kullan
+  let timeWindowsToSearch = ["morning", "noon", "afternoon", "evening"];
+
+  if (isStrictMode && requestedTimeWindow && requestedTimeWindow.start) {
+    // Strict mode: Sadece requested window'u ara
+    const requestedWindow = getTimeWindowName(requestedTimeWindow.start);
+    timeWindowsToSearch = [requestedWindow];
+  }
+
+  // ✅ FIX: time_window field'ını kaldır, strict mode göre ayarla
   const { time_window, ...filtersWithoutTimeWindow } = softFilters;
   const flexibleFilters = {
     ...filtersWithoutTimeWindow,
-    time_window_strict: false  // 👈 SOFT mode
+    time_window_strict: false  // Manual filtering yapıyoruz
   };
 
-  for (const timeWindow of timeWindows) {
+  for (const timeWindow of timeWindowsToSearch) {
     const windowStart = timeWindow === "morning" ? TIME_WINDOWS.MORNING.start :
                          timeWindow === "noon" ? TIME_WINDOWS.NOON.start :
                          timeWindow === "afternoon" ? TIME_WINDOWS.AFTERNOON.start :
