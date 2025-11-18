@@ -2323,13 +2323,10 @@ function main() {
 }
 
 // Support both n8n and Node.js module usage
-if (typeof $input !== 'undefined' && typeof module === 'undefined') {
+if (typeof $input !== 'undefined') {
   // n8n execution context
   return main();
-} else {
-  // Node.js module context
-  const result = main();
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = result;
-  }
+} else if (typeof module !== 'undefined' && module.exports) {
+  // Node.js module context for testing
+  module.exports = main();
 }
