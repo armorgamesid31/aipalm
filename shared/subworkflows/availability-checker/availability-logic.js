@@ -1805,57 +1805,104 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
     });
   }
   
-  // ✅ FIX: Her window'dan en iyi alternatifi seç, sonra priority'ye göre sort et
-  const timeWindowGroups = {};
+  // ✅ YENİ: 10 farklı senaryo seç (AI'a göndermek için)
+  // Çeşitlilik stratejisi: farklı time windows, farklı experts, farklı dates
 
-  candidates.forEach(c => {
-    const window = c.time_window || "other";
-    if (!timeWindowGroups[window]) timeWindowGroups[window] = [];
-    timeWindowGroups[window].push(c);
-  });
+  // Kategorize scenarios
+  const sameDay = candidates.filter(c => c.appointments[0].date === dateStr);
+  const otherDays = candidates.filter(c => c.appointments[0].date !== dateStr);
 
-  // Her window'dan en iyi alternatifi al
-  const windowBest = [];
-  for (const window of Object.keys(timeWindowGroups)) {
-    if (timeWindowGroups[window].length > 0) {
-      const sorted = timeWindowGroups[window].sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return 0;
-      });
+  let sameDayPreferred = [];
+  let sameDayAlternative = [];
+  let otherDaysPreferred = [];
+  let otherDaysAlternative = [];
 
-      windowBest.push(sorted[0]);
+  if (preferredExpert) {
+    const preferredExpertName = preferredExpert;
+    sameDayPreferred = sameDay.filter(c =>
+      c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+    sameDayAlternative = sameDay.filter(c =>
+      !c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+    otherDaysPreferred = otherDays.filter(c =>
+      c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+    otherDaysAlternative = otherDays.filter(c =>
+      !c.appointments.some(a => normalizeExpertName(a.expert) === normalizeExpertName(preferredExpertName))
+    );
+  } else {
+    // Eğer preferred expert yoksa, tümü "preferred" sayılır
+    sameDayPreferred = sameDay;
+    otherDaysPreferred = otherDays;
+  }
+
+  // Sort each category by priority
+  sameDayPreferred.sort((a, b) => a.priority - b.priority);
+  sameDayAlternative.sort((a, b) => a.priority - b.priority);
+  otherDaysPreferred.sort((a, b) => a.priority - b.priority);
+  otherDaysAlternative.sort((a, b) => a.priority - b.priority);
+
+  const selected = [];
+
+  // 1. Aynı gün + Preferred expert + İstenen time window (EN ÖNCELİKLİ - 1 senaryo)
+  if (sameDayPreferred.length > 0) {
+    selected.push(sameDayPreferred[0]);
+  }
+
+  // 2. Aynı gün + Preferred expert + Diğer time windows (max 3 senaryo)
+  // Her window'dan farklı bir tane al
+  const windowsSeen = new Set();
+  for (const scenario of sameDayPreferred) {
+    if (selected.includes(scenario)) continue;
+    if (selected.length >= 4) break; // 1 + 3 = 4
+
+    const window = scenario.time_window;
+    if (!windowsSeen.has(window)) {
+      windowsSeen.add(window);
+      selected.push(scenario);
     }
   }
 
-  // Tüm window'ların en iyilerini priority'ye göre sort et ve ilk 3'ünü al
-  windowBest.sort((a, b) => {
-    if (a.priority !== b.priority) return a.priority - b.priority;
-    return 0;
-  });
+  // 3. Aynı gün + Alternative experts (max 2 senaryo)
+  for (const scenario of sameDayAlternative) {
+    if (selected.length >= 6) break; // 4 + 2 = 6
 
-  const selected = windowBest.slice(0, 3);
-  
-  if (selected.length < 3) {
-    const sorted = candidates
+    // Çakışma kontrolü
+    const conflict = selected.some(s =>
+      s.appointments[0].date === scenario.appointments[0].date &&
+      Math.abs(timeToMinutes(s.appointments[0].start) - timeToMinutes(scenario.appointments[0].start)) < MIN_PRESENT_GAP_MIN
+    );
+
+    if (!conflict) {
+      selected.push(scenario);
+    }
+  }
+
+  // 4. Farklı günler + Preferred expert (max 2 senaryo)
+  for (const scenario of otherDaysPreferred) {
+    if (selected.length >= 8) break; // 6 + 2 = 8
+    selected.push(scenario);
+  }
+
+  // 5. Farklı günler + Alternative experts (max 2 senaryo)
+  for (const scenario of otherDaysAlternative) {
+    if (selected.length >= 10) break; // 8 + 2 = 10
+    selected.push(scenario);
+  }
+
+  // Eğer hala 10'a ulaşmadıysa, kalan candidates'tan en iyi priority'leri ekle
+  if (selected.length < 10) {
+    const remaining = candidates
       .filter(c => !selected.includes(c))
-      .sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return 0;
-      });
-    
-    for (const c of sorted) {
-      const conflict = selected.some(s => 
-        s.appointments[0].date === c.appointments[0].date && 
-        !isTimeGapSufficient(s.appointments[0].start, c.appointments[0].start, MIN_PRESENT_GAP_MIN)
-      );
-      
-      if (!conflict) {
-        selected.push(c);
-        if (selected.length >= 3) break;
-      }
+      .sort((a, b) => a.priority - b.priority);
+
+    for (const scenario of remaining) {
+      if (selected.length >= 10) break;
+      selected.push(scenario);
     }
   }
-  
+
   return selected;
 }
 
@@ -2066,7 +2113,7 @@ function main() {
 
     if (!exactMatch) {
       const alternatives = generateMultiServiceAlternatives(services, dateStr, targetTime, existingAppointments, staffLeaves, serviceInfo, effectiveConstraints, currentTime);
-      
+
       if (alternatives.length) {
         const options = alternatives.map((combo, idx) => ({
           id: idx + 1,
@@ -2089,10 +2136,25 @@ function main() {
           total_duration: combo.total_duration,
           arrangement: combo.arrangement,
           missing_services: combo.missing_services || [],
-          alternative_reason: combo.reason
+          alternative_reason: combo.reason,
+          priority: combo.priority  // ✅ AI'ın karar vermesi için priority ekle
         }));
 
-        return [{ json: { status: "alternatives", options, follow_up_question: generateFollowUpQuestion(options) } }];
+        // ✅ YENİ: AI selection için flag ekle
+        const needsAISelection = options.length > 3;
+
+        return [{ json: {
+          status: needsAISelection ? "ai_selection_required" : "alternatives",
+          options,
+          needs_ai_selection: needsAISelection,
+          customer_request: {
+            services: services.map(s => s.name),
+            date: dateStr,
+            time_window: constraints?.filters?.time_window,
+            expert_preference: services[0]?.expert_preference
+          },
+          follow_up_question: needsAISelection ? null : generateFollowUpQuestion(options)
+        } }];
       }
     }
   }
