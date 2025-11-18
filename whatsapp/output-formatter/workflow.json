@@ -1,1 +1,243 @@
-
+{
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.chakrahq.com/v1/ext/plugin/whatsapp/3ad985e8-bca9-4c34-a725-08b28566c8e7/api/v22.0/947816548405132/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        -2224
+      ],
+      "id": "25ee0494-86d4-4156-85a6-a70889448114",
+      "name": "Send Session Message",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "R34w3tbLFASjE8WW",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "list-check",
+              "leftValue": "={{ $json.output }}",
+              "rightValue": "__LIST_MESSAGE__",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -2320
+      ],
+      "id": "0f877688-2260-4c5e-8ed2-619ce5d028e3",
+      "name": "List mi Text mi?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// LIST MESSAGE PARSER + ERROR HANDLING\n// =============================================\n\nconst output = $input.item.json.output;\n\ntry {\n  // 1. Prefix'i temizle\n  const jsonStr = output.replace('__LIST_MESSAGE__', '').trim();\n  \n  // 2. JSON parse et\n  const listData = JSON.parse(jsonStr);\n  \n  // =============================================\n  // 3. VALIDATION\n  // =============================================\n  \n  // Gerekli fieldlar var mı?\n  if (!listData.header || !listData.body) {\n    console.warn('⚠️ Missing header/body, adding defaults');\n    listData.header = listData.header || \"Seçenekler\";\n    listData.body = listData.body || \"Lütfen seçim yapın\";\n  }\n  \n  // Sections var mı?\n  if (!listData.sections || listData.sections.length === 0) {\n    throw new Error('No sections in list');\n  }\n  \n  // En az 1 row var mı?\n  const totalRows = listData.sections.reduce((sum, s) => \n    sum + (s.rows?.length || 0), 0\n  );\n  \n  if (totalRows === 0) {\n    throw new Error('All sections empty');\n  }\n  \n  // Defaults ekle\n  listData.footer = listData.footer || \"Palm Nail&Beauty Bar\";\n  listData.button = listData.button || \"Seçenekler\";\n  \n  // =============================================\n  // 4. WHATSAPP FORMAT'A DÖNÜŞTÜR\n  // =============================================\n  \n  const payload = {\n    \"messaging_product\": \"whatsapp\",\n    \"to\": $('whatsapp_instagram_api').item.json.body.entry[0].changes[0].value.contacts[0].wa_id,\n    \"type\": \"interactive\",\n    \"interactive\": {\n      \"type\": \"list\",\n      \"header\": {\n        \"type\": \"text\",\n        \"text\": listData.header\n      },\n      \"body\": {\n        \"text\": listData.body\n      },\n      \"footer\": {\n        \"text\": listData.footer\n      },\n      \"action\": {\n        \"button\": listData.button,\n        \"sections\": listData.sections\n      }\n    }\n  };\n  \n  // =============================================\n  // 5. SUCCESS RETURN\n  // =============================================\n  \n  return {\n    json: {\n      payload: payload,\n      success: true,\n      list_info: {\n        option_count: totalRows,\n        sections: listData.sections.length,\n        header: listData.header\n      }\n    }\n  };\n  \n} catch (error) {\n  // =============================================\n  // 6. ERROR HANDLING - FALLBACK TO TEXT\n  // =============================================\n  \n  console.error('❌ List parse error:', error.message);\n  console.error('📄 Raw output:', output.substring(0, 500));\n  \n  // Text mesaj olarak fallback\n  const textPayload = {\n    \"messaging_product\": \"whatsapp\",\n    \"to\": $('whatsapp_instagram_api').item.json.body.entry[0].changes[0].value.contacts[0].wa_id,\n    \"type\": \"text\",\n    \"text\": {\n      \"body\": \"Seçenekleri düzgün görüntüleyemiyorum. İşte alternatifler:\\n\\n\" + \n              output.replace('__LIST_MESSAGE__', '').substring(0, 800),\n      \"preview_url\": false\n    }\n  };\n  \n  return {\n    json: {\n      payload: textPayload,\n      success: false,\n      error: error.message,\n      fallback: true\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        -2416
+      ],
+      "id": "80ed89ba-06c3-4632-91d4-e0a64ab4d8db",
+      "name": "Parse List JSON"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.chakrahq.com/v1/ext/plugin/whatsapp/3ad985e8-bca9-4c34-a725-08b28566c8e7/api/v22.0/947816548405132/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2544,
+        -2416
+      ],
+      "id": "baef9d07-f770-484c-81f9-15a78a6c11be",
+      "name": "Send List Message",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "R34w3tbLFASjE8WW",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================\n// TEXT MESSAGE PAYLOAD BUILDER\n// =============================================\n\n// Alıcı numarasını webhook verisinden çek\nconst to = $('whatsapp_instagram_api').item.json.body.entry[0].changes[0].value.contacts[0].wa_id;\n\n// Output metnini güvenli şekilde al, maksimum 4000 karakterle sınırla\nconst bodyText = String($json.output ?? '').slice(0, 4000);\n\n// WhatsApp formatına uygun payload oluştur\nconst payload = {\n  messaging_product: 'whatsapp',\n  to,\n  type: 'text',\n  text: {\n    body: bodyText,\n    preview_url: false\n  }\n};\n\n// Payload'u döndür\nreturn [\n  {\n    json: {\n      payload\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2368,
+        -2224
+      ],
+      "id": "094dd6b9-2e46-4ad7-b674-e710b130429c",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.output }}",
+        "options": {
+          "systemMessage": "# WhatsApp Output Formatter Agent\n\nSen WhatsApp mesajlarını optimize eden bir formatlayıcısın. \n\n## TEK GÖREVİN\n\nRandevu asistanından gelen cevabı analiz et:\n1. **Liste gerekiyor mu?** → Liste formatına çevir (`__LIST_MESSAGE__` ekle)\n2. **Normal metin mi?** → Aynen bırak\n\n**NOT:** Boş output kontrolü yapma, bu zaten yapıldı. Sen sadece formatlama yap.\n\n---\n\n## KURAL 1: NE ZAMAN LİSTE KULLAN?\n\n### ✅ Liste Kullan (2+ seçenek varsa):\n\n**A) Müsaitlik Alternatifleri**\nTetikleyici:\n- \"seçenekler\", \"alternatifler\"\n- \"1️⃣\", \"2️⃣\", \"3️⃣\" veya \"1)\", \"2)\", \"3)\"\n- Tarih + saat + fiyat (2+ satır)\n\n**B) Randevu Listesi**\nTetikleyici:\n- \"randevularınız\", \"randevu listesi\"\n- Birden fazla randevu\n\n**C) Hizmet/Bölge Seçenekleri**\nTetikleyici:\n- 3+ seçenek listesi\n- \"Hangi bölge?\", \"Seçenekler:\"\n\n### ❌ Liste Kullanma:\n\n- Onay mesajları (\"oluşturuldu\", \"iptal edildi\")\n- Tek seçenek\n- Sorular (bilgi isteme)\n- Sohbet/bilgilendirme\n\n---\n\n## KURAL 2: SECTION YAPISI (KRİTİK!)\n\n### ⚠️ ZORUNLU KURAL: HER SEÇENEK = AYRI SECTION\n\n**Yanlış ❌:**\n```json\n{\n  \"sections\": [\n    {\n      \"title\": \"15 Kasım Cumartesi\",\n      \"rows\": [\n        {\"title\": \"10:00-10:30 (Sevcan)\"},\n        {\"title\": \"12:45-13:15 (Sevcan)\"},\n        {\"title\": \"18:00-18:30 (Sevcan)\"}\n      ]\n    }\n  ]\n}\n```\n\n**Doğru ✅:**\n```json\n{\n  \"sections\": [\n    {\n      \"title\": \"📅 15 Kas Cmt 10:00\",\n      \"rows\": [{\"title\": \"💅 Sevcan (30dk)\"}]\n    },\n    {\n      \"title\": \"📅 15 Kas Cmt 12:45\",\n      \"rows\": [{\"title\": \"💅 Sevcan (30dk)\"}]\n    },\n    {\n      \"title\": \"📅 15 Kas Cmt 18:00\",\n      \"rows\": [{\"title\": \"💅 Sevcan (30dk)\"}]\n    }\n  ]\n}\n```\n\n---\n\n## KURAL 3: SECTION ve ROW TITLE FORMAT\n\n### WhatsApp API Limitler:\n\n- **Header:** Max 60 karakter\n- **Body:** Max 4096 karakter\n- **Footer:** Max 60 karakter\n- **Button:** Max 20 karakter\n- **Section Title:** Max 24 karakter ⚠️\n- **Row Title:** Max 24 karakter ⚠️\n- **Row Description:** Max 72 karakter\n\n---\n\n## KURAL 4: TITLE FORMAT ŞABLONLARI\n\n### Section Title (Max 24 char):\n**Format:** `📅 [Tarih] [Saat]`\n\n**Örnekler:**\n- `📅 15 Kas Cmt 10:00` (20 char) ✅\n- `📅 15 Kas Cmt 18:30` (20 char) ✅\n- `📅 16 Kas Paz 14:00` (20 char) ✅\n\n**Ay Kısaltmaları:**\n- Ocak→Oca, Şubat→Şub, Mart→Mar, Nisan→Nis\n- Mayıs→May, Haziran→Haz, Temmuz→Tem, Ağustos→Ağu\n- Eylül→Eyl, Ekim→Eki, Kasım→Kas, Aralık→Ara\n\n**Gün Kısaltmaları:**\n- Pazartesi→Pzt, Salı→Sal, Çarşamba→Çar\n- Perşembe→Per, Cuma→Cum, Cumartesi→Cmt, Pazar→Paz\n\n---\n\n### Row Title (Max 24 char):\n**Format:** `💅 [Uzman] ([Süre]dk)`\n\n**Örnekler:**\n- `💅 Sevcan (30dk)` (16 char) ✅\n- `💅 Pınar (120dk)` (16 char) ✅\n- `💅 Ceren (180dk)` (16 char) ✅\n\n**Çoklu Uzman (Grup Randevu):**\n- `💅 Sevcan & Pınar` (17 char) ✅\n- `💅 S & P (150dk)` (15 char) ✅\n\n---\n\n### Row Description (Max 72 char):\n**Format:** `[Hizmet] - [Fiyat]₺`\n\n**Örnekler:**\n- `Manikür - 450₺` (14 char) ✅\n- `Protez Tırnak - 1.000₺` (22 char) ✅\n- `Kalıcı Oje ve Manikür - 1.450₺` (32 char) ✅\n\n**Grup Randevu:**\n- `Protez Tırnak (Pınar) + Manikür (Sevcan) - Toplam 1.450₺` (59 char) ✅\n\n---\n\n## KURAL 5: EMOJİ KULLANIMI\n\n### İzin Verilen Emoji'ler:\n\n**Section Title:**\n- 📅 (tarih için)\n\n**Row Title:**\n- 💅 (tırnak hizmetleri: manikür, pedikür, protez, kalıcı oje)\n- 💆 (cilt bakımı, lifting, masaj)\n- ✨ (kaş, laminasyon)\n- 🔥 (lazer epilasyon)\n\n**Emoji Byte Hesabı:**\nEmoji **2-4 byte** sayılır. Güvenli limit: **20 karakter** (emoji dahil)\n\n---\n\n## KURAL 6: ID TEMİZLEME\n```javascript\nfunction cleanId(text) {\n  return text\n    .toLowerCase()\n    .replace(/:/g, '')      // 14:00 → 1400\n    .replace(/-/g, '')      // 14:00-16:00 → 14001600\n    .replace(/ı/g, 'i')\n    .replace(/ş/g, 's')\n    .replace(/ğ/g, 'g')\n    .replace(/ü/g, 'u')\n    .replace(/ö/g, 'o')\n    .replace(/ç/g, 'c')\n    .replace(/\\s+/g, '_')\n    .replace(/[^a-z0-9_]/g, '');\n}\n\n// Örnek:\n// \"alt_1_15_10:00_sevcan\" → \"alt_1_15_1000_sevcan\"\n```\n\n---\n\n## ÖRNEKLER\n\n### Örnek 1: Tek Gün - Tek Uzman - Çoklu Saat\n\n**Input:**\n```\nHarika! Sizin için en yakın uygun manikür randevuları:\n\n1️⃣ 15 Kasım, 10:00-10:30 - Sevcan - 450₺\n2️⃣ 15 Kasım, 12:45-13:15 - Sevcan - 450₺\n3️⃣ 15 Kasım, 18:00-18:30 - Sevcan - 450₺\n\nHangisi uygun? 🌴\n```\n\n**Output:**\n```\n__LIST_MESSAGE__\n{\"header\":\"Müsaitlik Seçenekleri\",\"body\":\"Harika! Sizin için en yakın uygun manikür randevuları:\",\"button\":\"Seç\",\"sections\":[{\"title\":\"📅 15 Kas Cmt 10:00\",\"rows\":[{\"id\":\"alt_1_15_1000_sevcan\",\"title\":\"💅 Sevcan (30dk)\",\"description\":\"Manikür - 450₺\"}]},{\"title\":\"📅 15 Kas Cmt 12:45\",\"rows\":[{\"id\":\"alt_2_15_1245_sevcan\",\"title\":\"💅 Sevcan (30dk)\",\"description\":\"Manikür - 450₺\"}]},{\"title\":\"📅 15 Kas Cmt 18:00\",\"rows\":[{\"id\":\"alt_3_15_1800_sevcan\",\"title\":\"💅 Sevcan (30dk)\",\"description\":\"Manikür - 450₺\"}]}]}\n```\n\n---\n\n### Örnek 2: Tek Gün - Çoklu Uzman\n\n**Input:**\n```\nYarın için alternatifler:\n\n1️⃣ 15 Kasım, 14:00-16:45 - Pınar - 1.450₺\n2️⃣ 15 Kasım, 16:00-18:45 - Ceren - 1.300₺\n3️⃣ 15 Kasım, 18:00-20:00 - Pınar - 1.450₺\n\nHangisi uygun? 🌴\n```\n\n**Output:**\n```\n__LIST_MESSAGE__\n{\"header\":\"Müsaitlik Seçenekleri\",\"body\":\"Yarın için alternatifler:\",\"button\":\"Seç\",\"sections\":[{\"title\":\"📅 15 Kas Cmt 14:00\",\"rows\":[{\"id\":\"alt_1_15_1400_pinar\",\"title\":\"💅 Pınar (165dk)\",\"description\":\"Kalıcı Oje - 1.450₺\"}]},{\"title\":\"📅 15 Kas Cmt 16:00\",\"rows\":[{\"id\":\"alt_2_15_1600_ceren\",\"title\":\"💅 Ceren (165dk)\",\"description\":\"Kalıcı Oje - 1.300₺\"}]},{\"title\":\"📅 15 Kas Cmt 18:00\",\"rows\":[{\"id\":\"alt_3_15_1800_pinar\",\"title\":\"💅 Pınar (120dk)\",\"description\":\"Kalıcı Oje - 1.450₺\"}]}]}\n```\n\n---\n\n### Örnek 3: Çoklu Gün\n\n**Input:**\n```\n27 Ekim'de müsait değil ama yakın alternatifler:\n\n1️⃣ 28 Ekim, 10:00-12:00 - Pınar - 1.000₺\n2️⃣ 28 Ekim, 14:00-17:00 - Ceren - 800₺\n3️⃣ 29 Ekim, 10:00-12:00 - Pınar - 1.000₺\n\nHangisi uygun? 🌴\n```\n\n**Output:**\n```\n__LIST_MESSAGE__\n{\"header\":\"Müsaitlik Seçenekleri\",\"body\":\"27 Ekim'de müsait değil ama yakın alternatifler:\",\"button\":\"Seç\",\"sections\":[{\"title\":\"📅 28 Eki Sal 10:00\",\"rows\":[{\"id\":\"alt_1_28_1000_pinar\",\"title\":\"💅 Pınar (120dk)\",\"description\":\"Protez Tırnak - 1.000₺\"}]},{\"title\":\"📅 28 Eki Sal 14:00\",\"rows\":[{\"id\":\"alt_2_28_1400_ceren\",\"title\":\"💅 Ceren (180dk)\",\"description\":\"Protez Tırnak - 800₺\"}]},{\"title\":\"📅 29 Eki Çar 10:00\",\"rows\":[{\"id\":\"alt_3_29_1000_pinar\",\"title\":\"💅 Pınar (120dk)\",\"description\":\"Protez Tırnak - 1.000₺\"}]}]}\n```\n\n---\n\n### Örnek 4: Grup Randevu\n\n**Input:**\n```\nAnnenizle birlikte randevu seçenekleri:\n\n1️⃣ 15 Kasım, 14:00 - Pınar & Sevcan - 1.450₺ (Paralel)\n2️⃣ 15 Kasım, 16:00 - Ceren & Pınar - 1.450₺ (Paralel)\n\nHangisi uygun? 🌴\n```\n\n**Output:**\n```\n__LIST_MESSAGE__\n{\"header\":\"Grup Randevu\",\"body\":\"Annenizle birlikte randevu seçenekleri:\",\"button\":\"Seç\",\"sections\":[{\"title\":\"📅 15 Kas Cmt 14:00\",\"rows\":[{\"id\":\"alt_1_15_1400_pinarsevcan\",\"title\":\"💅 Pınar & Sevcan\",\"description\":\"Protez Tırnak + Manikür (Paralel) - 1.450₺\"}]},{\"title\":\"📅 15 Kas Cmt 16:00\",\"rows\":[{\"id\":\"alt_2_15_1600_cerenpinar\",\"title\":\"💅 Ceren & Pınar\",\"description\":\"Protez Tırnak + Manikür (Paralel) - 1.450₺\"}]}]}\n```\n\n---\n\n### Örnek 5: Randevu Listesi (İptal/Değiştirme)\n\n**Input:**\n```\nRandevularınız:\n\n1) 5 Kasım, 17:00 - Protez Tırnak (Pınar)\n2) 8 Kasım, 10:00 - Lazer Tüm Bacak (Sevcan)\n\nHangisini iptal istersiniz?\n```\n\n**Output:**\n```\n__LIST_MESSAGE__\n{\"header\":\"📅 Randevularınız\",\"body\":\"Hangi randevunuzu iptal veya değiştirmek istersiniz?\",\"button\":\"Seç\",\"sections\":[{\"title\":\"📅 5 Kas Sal 17:00\",\"rows\":[{\"id\":\"appt_05_1700_pt_pinar\",\"title\":\"💅 Pınar (120dk)\",\"description\":\"Protez Tırnak - 1.000₺\"}]},{\"title\":\"📅 8 Kas Cum 10:00\",\"rows\":[{\"id\":\"appt_08_1000_lb_sevcan\",\"title\":\"🔥 Sevcan (40dk)\",\"description\":\"Lazer Tüm Bacak - 800₺\"}]}]}\n```\n\n---\n\n## KURAL 7: NORMAL METİN\n\nListe gerekmiyorsa → Input'u **AYNEN** döndür.\n\n**Önemli:** Hiçbir değişiklik yapma, emoji'leri koruy, formatı koru.\n```\nInput: \"✅ Randevunuz oluşturuldu! 🌴\"\nOutput: \"✅ Randevunuz oluşturuldu! 🌴\"\n```\n\n---\n\n## KRİTİK HATIRLATMALAR\n\n1. ✅ **HER SEÇENEK = AYRI SECTION** (zorunlu)\n2. ✅ Section title: `📅 [Tarih] [Saat]` (max 24 char)\n3. ✅ Row title: `💅 [Uzman] ([Süre]dk)` (max 24 char)\n4. ✅ Description: `[Hizmet] - [Fiyat]₺` (max 72 char)\n5. ✅ Her section'da **sadece 1 row**\n6. ✅ JSON tek satır, compact format\n7. ✅ ID'lerde özel karakter yok\n8. ✅ Emoji byte'larını hesaba kat\n\n**NOT:** Asla boş output üretme. Her zaman bir şey döndür."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1776,
+        -1968
+      ],
+      "id": "caf5efd5-d18e-4dc5-b890-b218fe63548c",
+      "name": "AI Agent3"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1776,
+        -1808
+      ],
+      "id": "b2a8d560-9f2c-4b99-91fb-ad80f1e7f864",
+      "name": "Google Gemini Chat Model3",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "se2OE5eDuUT8LiFG",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "List mi Text mi?": {
+      "main": [
+        [
+          {
+            "node": "Parse List JSON",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse List JSON": {
+      "main": [
+        [
+          {
+            "node": "Send List Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send List Message": {
+      "main": [
+        []
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Send Session Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent3": {
+      "main": [
+        [
+          {
+            "node": "List mi Text mi?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent3",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "afd9177fa22bd401d1ec287c9dde7939ce50fb767c8e226f6de704d0a8fffb41"
+  }
+}
