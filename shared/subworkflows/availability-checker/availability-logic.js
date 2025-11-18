@@ -1493,9 +1493,10 @@ function generateMultiServiceAlternatives(services, dateStr, targetTime, existin
 
   const timeWindows = ["morning", "noon", "afternoon", "evening"];
 
-  // ✅ FIX: time_window_strict: false kullan, priority ile sırala
+  // ✅ FIX: time_window field'ını kaldır, sadece strict: false kullan
+  const { time_window, ...filtersWithoutTimeWindow } = softFilters;
   const flexibleFilters = {
-    ...softFilters,
+    ...filtersWithoutTimeWindow,
     time_window_strict: false  // 👈 SOFT mode
   };
 
