@@ -57,7 +57,6 @@
 **Önemli Notlar:**
 - En geniş hizmet yelpazesine sahip
 - Lazer ve ağda hizmetlerinde tek uzman
-- Gap-filling (boşluk doldurma) randevular alabilen tek uzman
 
 ---
 
@@ -88,12 +87,6 @@
 
 ---
 
-### 👩 İlayda Kaya (ID: 1114)
-
-**Durum:** ⚠️ Henüz aktif değil
-**Planlanan Uzmanlık:** Tırnak hizmetleri
-
----
 
 ## Kapasite Kuralları
 
