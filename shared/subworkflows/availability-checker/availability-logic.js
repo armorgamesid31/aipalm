@@ -316,6 +316,28 @@ function isNailAnchor(serviceName){
   return ["Protez Tırnak", "Kalıcı Oje", "Kalıcı Oje + Jel Güçlendirme"].includes(s);
 }
 
+function isLaserService(serviceName){
+  const s = normalizeServiceName(serviceName);
+  return s.startsWith("Lazer");
+}
+
+// ✅ YENİ: Servisleri gruplandır - Lazer hizmetleri bir blok halinde arka arkaya
+function groupLaserServices(services) {
+  const laserServices = [];
+  const nonLaserServices = [];
+
+  for (const service of services) {
+    if (isLaserService(service.name)) {
+      laserServices.push(service);
+    } else {
+      nonLaserServices.push(service);
+    }
+  }
+
+  // Lazer hizmetlerini sonuna ekle (arka arkaya blok halinde)
+  return [...nonLaserServices, ...laserServices];
+}
+
 function eligibleExpertsForService(serviceName, serviceInfo) {
   const s = normalizeServiceName(serviceName);
   const listedRaw = Object.keys(serviceInfo?.[s] || {});
@@ -785,8 +807,11 @@ function tryScheduleAllServices(referenceSlot, remainingServices, dateInfo, exis
   if (isGroup && remainingServices.length > 0) {
     const dateStr = referenceSlot.date;
 
+    // ✅ YENİ: Lazer hizmetlerini gruplandır (arka arkaya blok halinde)
+    const orderedServices = groupLaserServices(remainingServices);
+
     // Paralel veya arka arkaya yerleştirme
-    for (const service of remainingServices) {
+    for (const service of orderedServices) {
       const sname = normalizeServiceName(service.name);
 
       // ✅ FİX: Aynı servisi farklı kişiler için ayırt et
