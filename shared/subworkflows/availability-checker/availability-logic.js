@@ -310,6 +310,7 @@ function categoryExperts(serviceName){
 }
 
 const WORKING_HOURS = { start: "10:00", end: "20:00", closed_day: 0 };
+const MAX_EXPERT_CHANGE_GAP_MIN = 15;  // ✅ Uzman değişikliğinde max boşluk (dakika)
 
 function isNailAnchor(serviceName){
   const s = normalizeServiceName(serviceName);
@@ -890,11 +891,28 @@ function tryScheduleAllServices(referenceSlot, remainingServices, dateInfo, exis
       // 2. ARKA ARKAYA DENEME (Paralel bulunamadıysa veya aynı uzman)
       if (!placed) {
         const targetStartMin = timeToMinutes(currentTimeSlot);
-        
+
+        // ✅ YENİ: Önceki uzmanı kontrol et
+        const previousExpert = scheduled.length > 0 ? scheduled[scheduled.length - 1].expert : null;
+
         for (const ex of eligible) {
+          const canonicalEx = canonicalExpert(ex);
+          const isSameExpert = previousExpert && canonicalEx === previousExpert;
+
+          // ✅ YENİ: Aynı uzman ise tam bitişik, farklı uzman ise 15 dk'ya kadar boşluk OK
           const slots = findAvailableSlots(dateStr, ex, { name: sname }, existingAppointments, staffLeaves, serviceInfo, filters, currentTime)
-            .filter(s => timeToMinutes(s.start) === targetStartMin)
-            .filter(s => !conflictsWithScheduled(dateStr, s, scheduled));
+            .filter(s => {
+              const slotStartMin = timeToMinutes(s.start);
+              if (isSameExpert) {
+                // Aynı uzman: Tam bitişik olmalı
+                return slotStartMin === targetStartMin;
+              } else {
+                // Farklı uzman: 15 dakikaya kadar boşluk kabul edilebilir
+                return slotStartMin >= targetStartMin && slotStartMin <= targetStartMin + MAX_EXPERT_CHANGE_GAP_MIN;
+              }
+            })
+            .filter(s => !conflictsWithScheduled(dateStr, s, scheduled))
+            .sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));  // ✅ En erken slotu önce
 
           const slot = slots[0];
           if (slot &&
