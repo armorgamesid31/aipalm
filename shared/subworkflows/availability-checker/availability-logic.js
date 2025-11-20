@@ -2457,21 +2457,18 @@ function main() {
 }
 
 // Support both n8n and Node.js module usage
-if (typeof module !== 'undefined' && typeof $input === 'undefined') {
-  // Node.js module context for testing (when there's NO $input)
-  // Export the main function itself, not the result
-  module.exports = main;
-} else if (typeof $input !== 'undefined') {
-  // n8n execution context (when $input exists)
-  // In n8n, we need to call main() and return the result
+if (typeof $input !== 'undefined') {
+  // When $input exists (n8n or Node.js test with mocked $input)
   const result = main();
-  // For Node.js require() with $input mocked (testing), export the result
+
+  // For Node.js: explicitly set module.exports
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = result;
   }
-  // For n8n, return the result
-  if (typeof module === 'undefined') {
-    // Pure n8n context
-    result;
-  }
+
+  // For n8n: return the result to the workflow
+  return result;
+} else if (typeof module !== 'undefined' && module.exports) {
+  // Node.js module context without $input - export the function
+  module.exports = main;
 }
