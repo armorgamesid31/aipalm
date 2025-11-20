@@ -458,6 +458,23 @@ function parseDateInfo(dateInfo) {
   let dates = [];
   if (dateInfo.type === "specific") {
     dates = [parseTurkishDate(dateInfo.value)];
+
+    // ✅ FIX: Eğer search_range de varsa, tercih edilen günde bulunamazsa fallback için range'i de ekle
+    if (dateInfo.search_range && dateInfo.search_range.includes(' to ')) {
+      const [start, end] = dateInfo.search_range.split(' to ');
+      const startDate = parseTurkishDate(start);
+      const endDate = parseTurkishDate(end);
+      const specificDate = parseTurkishDate(dateInfo.value);
+
+      let current = new Date(startDate);
+      while (current <= endDate) {
+        // Specific date'i zaten ekledik, diğer günleri ekle
+        if (current.getTime() !== specificDate.getTime()) {
+          dates.push(new Date(current));
+        }
+        current.setDate(current.getDate() + 1);
+      }
+    }
   } else if (dateInfo.type === "range") {
     const [start, end] = dateInfo.search_range.split(' to ');
     const startDate = parseTurkishDate(start);
@@ -728,6 +745,27 @@ function buildEffectiveConstraints(dateInfo, constraints, services) {
     dateInfo.target_time = minutesToTime(hintedMin);
   }
   
+  // ✅ FIX: Eğer specific date ama search_range varsa, earliest/latest_date'i range'den al
+  if (dateInfo?.type === 'specific' && dateInfo.search_range && dateInfo.search_range.includes(' to ')) {
+    const [start, end] = dateInfo.search_range.split(' to ');
+    // Eğer filters'da daha dar bir range varsa onu koru, yoksa search_range'i kullan
+    if (!eff.filters.earliest_date || !eff.filters.latest_date) {
+      eff.filters.earliest_date = start.trim();
+      eff.filters.latest_date = end.trim();
+    } else {
+      // Eğer mevcut earliest/latest sadece specific date ise, genişlet
+      const currentEarliest = eff.filters.earliest_date;
+      const currentLatest = eff.filters.latest_date;
+      const specificValue = dateInfo.value;
+
+      if (currentEarliest === specificValue && currentLatest === specificValue) {
+        // Sadece specific date'e kilitli, genişlet
+        eff.filters.earliest_date = start.trim();
+        eff.filters.latest_date = end.trim();
+      }
+    }
+  }
+
   // ✅ Grup bilgisi ekle
   eff.is_group = isGroup;
   eff.same_expert_info = sameExpertInfo;
