@@ -866,31 +866,25 @@ function tryScheduleAllServices(referenceSlot, remainingServices, dateInfo, exis
               const onLeave = isExpertOnLeave(ex, dateStr, slot, staffLeaves);
               const hasConflict = hasAppointmentConflict(dateStr, ex, slot, existingAppointments);
 
-              // ✅ FİX: Aynı uzman + aynı kişi için çakışan slotta olamaz
-              // Ama aynı uzman + farklı kişi için çakışabilir (grup randevu)
+              // ✅ Aynı uzman aynı anda birden fazla kişiye hizmet veremez
               const conflictsScheduled = scheduled.some(s => {
                 if (s.date !== dateStr) return false;
 
-                // Aynı uzman için kontrol et
+                // Aynı uzman için zaman çakışması kontrolü (kişi fark etmez!)
                 if (canonicalExpert(ex) === s.expert) {
-                  // Aynı kişi için mi? (self vs other_1 vs other_2 etc.)
-                  if (s.for_person === service.for_person) {
-                    // AYNI kişi + aynı uzman → Zaman çakışması olamaz
-                    const sStart = timeToMinutes(s.start);
-                    const sEnd = timeToMinutes(s.end);
-                    const slotStart = timeToMinutes(slot.start);
-                    const slotEnd = timeToMinutes(slot.end);
-                    const conflicts = slotStart < sEnd && slotEnd > sStart;
-                    if (conflicts) {
-                      console.log(`      ⛔ Çakışma: Aynı kişi (${service.for_person}) + aynı uzman (${s.expert})`);
-                    }
-                    return conflicts;
+                  const sStart = timeToMinutes(s.start);
+                  const sEnd = timeToMinutes(s.end);
+                  const slotStart = timeToMinutes(slot.start);
+                  const slotEnd = timeToMinutes(slot.end);
+                  const conflicts = slotStart < sEnd && slotEnd > sStart;
+
+                  if (conflicts) {
+                    console.log(`      ⛔ Çakışma: Aynı uzman (${s.expert}) zaten meşgul (${s.start}-${s.end}, kişi: ${s.for_person})`);
                   }
-                  // FARKLI kişi + aynı uzman → Çakışabilir (paralel randevu OK)
-                  console.log(`      ✅ OK: Farklı kişi (${service.for_person} vs ${s.for_person}) + aynı uzman`);
-                  return false;
+                  return conflicts;
                 }
-                // Farklı uzmanlar → Çakışabilir (paralel OK)
+
+                // Farklı uzmanlar → Paralel çalışabilir
                 return false;
               });
 
@@ -931,45 +925,49 @@ function tryScheduleAllServices(referenceSlot, remainingServices, dateInfo, exis
       // 2. ARKA ARKAYA DENEME (Paralel bulunamadıysa veya aynı uzman)
       if (!placed) {
         console.log('  🔄 SEQUENTIAL (ARKA ARKAYA) DENEME başlıyor...');
-        const targetStartMin = timeToMinutes(currentTimeSlot);
-        console.log(`    ⏰ Hedef başlangıç: ${currentTimeSlot} (${targetStartMin} dk)`);
 
-        // ✅ YENİ: Önceki uzmanı kontrol et
-        const previousExpert = scheduled.length > 0 ? scheduled[scheduled.length - 1].expert : null;
-        console.log(`    👤 Önceki uzman: ${previousExpert || 'yok'}`);
+        // ✅ FİX: AYNI KİŞİNİN önceki servisini bul (farklı kişinin değil!)
+        const samePersonScheduled = scheduled.filter(s => s.for_person === service.for_person);
+        const hasPreviousService = samePersonScheduled.length > 0;
+        const previousService = hasPreviousService ? samePersonScheduled[samePersonScheduled.length - 1] : null;
 
-        for (const ex of eligible) {
-          const canonicalEx = canonicalExpert(ex);
-          const isSameExpert = previousExpert && canonicalEx === previousExpert;
-          console.log(`    🔍 Deneniyor: ${ex} (${isSameExpert ? 'AYNI uzman' : 'FARKLI uzman'})`);
+        if (hasPreviousService) {
+          // Aynı kişinin önceki servisi var → arka arkaya yerleştir
+          const targetStartMin = timeToMinutes(previousService.end);
+          console.log(`    ⏰ Hedef başlangıç: ${previousService.end} (${targetStartMin} dk) - ${service.for_person}'in önceki servisi bitti`);
+          console.log(`    👤 Önceki uzman: ${previousService.expert}`);
 
-          // ✅ YENİ: Aynı uzman ise tam bitişik, farklı uzman ise 15 dk'ya kadar boşluk OK
-          const allSlots = findAvailableSlots(dateStr, ex, { name: sname }, existingAppointments, staffLeaves, serviceInfo, filters, currentTime);
-          console.log(`      📍 Tüm slotlar: ${allSlots.length}`);
+          for (const ex of eligible) {
+            const canonicalEx = canonicalExpert(ex);
+            const isSameExpert = canonicalEx === previousService.expert;
+            console.log(`    🔍 Deneniyor: ${ex} (${isSameExpert ? 'AYNI uzman' : 'FARKLI uzman'})`);
 
-          const slots = allSlots
-            .filter(s => {
-              const slotStartMin = timeToMinutes(s.start);
-              if (isSameExpert) {
-                // Aynı uzman: Tam bitişik olmalı
-                const ok = slotStartMin === targetStartMin;
-                if (!ok) console.log(`      ⛔ ${s.start} RED: Aynı uzman, tam bitişik değil (${slotStartMin} != ${targetStartMin})`);
-                return ok;
-              } else {
-                // Farklı uzman: 15 dakikaya kadar boşluk kabul edilebilir
-                const ok = slotStartMin >= targetStartMin && slotStartMin <= targetStartMin + MAX_EXPERT_CHANGE_GAP_MIN;
-                if (!ok) console.log(`      ⛔ ${s.start} RED: Farklı uzman, 15dk aralığında değil (${slotStartMin} vs ${targetStartMin}-${targetStartMin + MAX_EXPERT_CHANGE_GAP_MIN})`);
-                return ok;
-              }
-            })
-            .filter(s => {
-              const conflict = conflictsWithScheduled(dateStr, s, scheduled);
-              if (conflict) console.log(`      ⛔ ${s.start} RED: Scheduled ile çakışıyor`);
-              return !conflict;
-            })
-            .sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));  // ✅ En erken slotu önce
+            const allSlots = findAvailableSlots(dateStr, ex, { name: sname }, existingAppointments, staffLeaves, serviceInfo, filters, currentTime);
+            console.log(`      📍 Tüm slotlar: ${allSlots.length}`);
 
-          console.log(`      ✅ Uygun slotlar: ${slots.length}`);
+            const slots = allSlots
+              .filter(s => {
+                const slotStartMin = timeToMinutes(s.start);
+                if (isSameExpert) {
+                  // Aynı uzman: Tam bitişik olmalı
+                  const ok = slotStartMin === targetStartMin;
+                  if (!ok) console.log(`      ⛔ ${s.start} RED: Aynı uzman, tam bitişik değil (${slotStartMin} != ${targetStartMin})`);
+                  return ok;
+                } else {
+                  // Farklı uzman: 15 dakikaya kadar boşluk kabul edilebilir
+                  const ok = slotStartMin >= targetStartMin && slotStartMin <= targetStartMin + MAX_EXPERT_CHANGE_GAP_MIN;
+                  if (!ok) console.log(`      ⛔ ${s.start} RED: Farklı uzman, 15dk aralığında değil (${slotStartMin} vs ${targetStartMin}-${targetStartMin + MAX_EXPERT_CHANGE_GAP_MIN})`);
+                  return ok;
+                }
+              })
+              .filter(s => {
+                const conflict = conflictsWithScheduled(dateStr, s, scheduled);
+                if (conflict) console.log(`      ⛔ ${s.start} RED: Scheduled ile çakışıyor`);
+                return !conflict;
+              })
+              .sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
+
+            console.log(`      ✅ Uygun slotlar: ${slots.length}`);
 
           const slot = slots[0];
           if (slot) {
@@ -1003,11 +1001,58 @@ function tryScheduleAllServices(referenceSlot, remainingServices, dateInfo, exis
             });
 
             console.log(`      ✅ SEQUENTIAL YERLEŞTİRİLDİ: ${ex} ${slot.start}-${slot.end} (${service.for_person})`);
-            currentTimeSlot = slot.end;
             placed = true;
             break;
           } else {
             console.log(`      ⛔ ${ex}: Uygun slot yok`);
+          }
+        }
+        } else {
+          // Aynı kişinin ilk servisi → gün içinde herhangi bir yere yerleştirilebilir
+          console.log(`    📍 ${service.for_person}'in ilk servisi - gün içinde herhangi bir saat uygun`);
+
+          for (const ex of eligible) {
+            const allSlots = findAvailableSlots(dateStr, ex, { name: sname }, existingAppointments, staffLeaves, serviceInfo, filters, currentTime);
+            console.log(`    👤 ${ex}: ${allSlots.length} slot bulundu`);
+
+            // Aynı uzman için çakışmayan slotları filtrele
+            const validSlots = allSlots.filter(s => {
+              // Sadece aynı uzman için çakışma kontrolü yap
+              const sameExpertConflict = scheduled.some(sch => {
+                if (canonicalExpert(ex) !== sch.expert) return false; // Farklı uzman OK
+                // Aynı uzman - zaman çakışması var mı?
+                const slotStart = timeToMinutes(s.start);
+                const slotEnd = timeToMinutes(s.end);
+                const schStart = timeToMinutes(sch.start);
+                const schEnd = timeToMinutes(sch.end);
+                return slotStart < schEnd && slotEnd > schStart;
+              });
+              return !sameExpertConflict;
+            });
+            console.log(`    ✅ Çakışmayan slotlar: ${validSlots.length}`);
+
+            const slot = validSlots[0];
+            if (slot &&
+                !isExpertOnLeave(ex, dateStr, slot, staffLeaves) &&
+                !hasAppointmentConflict(dateStr, ex, slot, existingAppointments)) {
+              const det = getServiceDetails(serviceInfo, sname, ex);
+              if (!det) continue;
+
+              scheduled.push({
+                date: dateStr,
+                expert: canonicalExpert(ex),
+                service: sname,
+                start: slot.start,
+                end: slot.end,
+                duration: parseInt(det.sure),
+                price: parseInt(det.fiyat),
+                for_person: service.for_person || null
+              });
+
+              console.log(`    ✅ İLK SERVİS YERLEŞTİRİLDİ: ${ex} ${slot.start}-${slot.end} (${service.for_person})`);
+              placed = true;
+              break;
+            }
           }
         }
       }
