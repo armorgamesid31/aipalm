@@ -2461,12 +2461,13 @@ if (typeof $input !== 'undefined') {
   // When $input exists (n8n or Node.js test with mocked $input)
   const result = main();
 
-  // For Node.js: explicitly set module.exports
-  if (typeof module !== 'undefined' && module.exports) {
+  // n8n sandbox'ında require yok, Node.js'de var - bu farkla ayırt ediyoruz
+  if (typeof require !== 'undefined' && typeof module !== 'undefined' && module.exports) {
+    // Node.js test ortamı: module.exports kullan
     module.exports = result;
   }
 
-  // For n8n: return the result to the workflow
+  // Her iki ortam için de return (n8n için zorunlu)
   return result;
 } else if (typeof module !== 'undefined' && module.exports) {
   // Node.js module context without $input - export the function
