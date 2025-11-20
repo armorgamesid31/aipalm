@@ -926,20 +926,31 @@ function tryScheduleAllServices(referenceSlot, remainingServices, dateInfo, exis
       if (!placed) {
         console.log('  🔄 SEQUENTIAL (ARKA ARKAYA) DENEME başlıyor...');
 
-        // ✅ FİX: AYNI KİŞİNİN önceki servisini bul (farklı kişinin değil!)
-        const samePersonScheduled = scheduled.filter(s => s.for_person === service.for_person);
-        const hasPreviousService = samePersonScheduled.length > 0;
-        const previousService = hasPreviousService ? samePersonScheduled[samePersonScheduled.length - 1] : null;
+        // ✅ FİX: Grup için chain_adjacent_only kontrolü
+        let targetService = null;
 
-        if (hasPreviousService) {
-          // Aynı kişinin önceki servisi var → arka arkaya yerleştir
-          const targetStartMin = timeToMinutes(previousService.end);
-          console.log(`    ⏰ Hedef başlangıç: ${previousService.end} (${targetStartMin} dk) - ${service.for_person}'in önceki servisi bitti`);
-          console.log(`    👤 Önceki uzman: ${previousService.expert}`);
+        if (strictChainAdjacent && scheduled.length > 0) {
+          // GRUP için chain_adjacent_only → en son yerleştirilen servis (kişi fark etmez!)
+          targetService = scheduled[scheduled.length - 1];
+          console.log(`    🔗 Chain_adjacent_only: GRUP için bitişik - En son servis ${targetService.for_person}'in ${targetService.service}'i`);
+        } else {
+          // Sadece aynı kişinin servisleri arka arkaya
+          const samePersonScheduled = scheduled.filter(s => s.for_person === service.for_person);
+          if (samePersonScheduled.length > 0) {
+            targetService = samePersonScheduled[samePersonScheduled.length - 1];
+            console.log(`    👤 Aynı kişinin önceki servisi: ${targetService.service}`);
+          }
+        }
+
+        if (targetService) {
+          // Önceki servisin bitişine yerleştir
+          const targetStartMin = timeToMinutes(targetService.end);
+          console.log(`    ⏰ Hedef başlangıç: ${targetService.end} (${targetStartMin} dk)`);
+          console.log(`    👤 Önceki uzman: ${targetService.expert}`);
 
           for (const ex of eligible) {
             const canonicalEx = canonicalExpert(ex);
-            const isSameExpert = canonicalEx === previousService.expert;
+            const isSameExpert = canonicalEx === targetService.expert;
             console.log(`    🔍 Deneniyor: ${ex} (${isSameExpert ? 'AYNI uzman' : 'FARKLI uzman'})`);
 
             const allSlots = findAvailableSlots(dateStr, ex, { name: sname }, existingAppointments, staffLeaves, serviceInfo, filters, currentTime);
